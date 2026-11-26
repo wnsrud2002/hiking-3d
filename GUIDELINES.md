@@ -103,7 +103,13 @@ cd ~/dev/workspace/hiking-3d && python3 -m http.server 8000
 4. 위치 버튼 → 파란 점 + 정확도 원이 뜨는지 (맥은 Wi-Fi 위치라 오차 큼, 정상)
 5. 위치 권한 거부 시에도 지도가 계속 동작하는지
 
-폰 테스트는 https가 필요하므로 배포 단계에서 다룬다.
+### 배포 (GitHub Pages)
+
+- 주소: https://wnsrud2002.github.io/hiking-3d/ (`main` 브랜치 루트를 그대로 서비스)
+- `git push`하면 1분 안팎으로 자동 배포된다. 확인: `gh api repos/wnsrud2002/hiking-3d/pages/builds/latest --jq .status` → `built`
+- GitHub Pages는 약 10분 동안 캐시한다. 폰에서 바로 반영이 안 되면 주소 뒤에 `?v=숫자`를 붙여 연다.
+- 공개 저장소다. 커밋 이메일은 GitHub 비공개 주소(noreply)를 쓴다 (저장소 로컬 git 설정).
+- 모바일: 지도 버튼은 44 px (iOS 최소 터치 크기). MapLibre 기본 29 px는 장갑 낀 손으로 누르기 어렵다.
 
 ## 7. 단계별 로드맵
 
@@ -111,7 +117,7 @@ cd ~/dev/workspace/hiking-3d && python3 -m http.server 8000
 |---|---|---|
 | 1 ✅ | 3D 지형 + 음영 + OSM 지도 + 내 위치 | 6장 체크리스트 1~5 통과 |
 | 2 ✅ | 등산로 강조 (Overpass 스냅샷 → `trails.geojson` → 선 레이어) | 기본 지도보다 등산로가 확실히 눈에 띔. 파일이 없으면 안내 후 지도는 계속 동작 |
-| 3 | 폰에서 실행 (https 정적 호스팅) | 실제 산에서 위치가 등산로 위에 찍힘 |
+| 3 🔶 | 폰에서 실행 (GitHub Pages 배포 완료, 산 실측 남음) | 실제 산에서 위치가 등산로 위에 찍힘 |
 | 4 | GPX 기록·다운로드, 다녀온 궤적 3D로 다시 보기 | 기록한 GPX를 다시 불러와 겹쳐 보임 |
 | (선택) | 등고선 표시: 고도 타일에서 등고선을 만들어 3D 지형 위에 그림 | 10 m 간격 선과 100 m 굵은 선이 지형과 맞게 보임 |
 
