@@ -40,6 +40,8 @@
 // v6부터 ESM 전용이라 UMD <script src> 대신 import
 import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-gl.mjs';
 import { setupTrack } from './track.js';
+import { setupRoute } from './route.js';
+import { createProfile } from './profile.js';
 
 const START = [128.9798, 35.1168]; // 승학산 정상 (OSM, 497 m)
 const ZOOM = 14, PITCH = 60, BEARING = -20;
@@ -69,10 +71,13 @@ const map = new maplibregl.Map({
       terrain: DEM,
       shade: DEM,
       // fetch_trails.py로 미리 받은 OSM 등산로 (Overpass를 매번 부르면 느리고 자주 실패)
-      trails: { type: 'geojson', data: 'trails.geojson' },
+      // generateId: 누른 조각의 번호(= 파일 속 순서)로 원본 전체 선을 찾기 위해 (route.js)
+      trails: { type: 'geojson', data: 'trails.geojson', generateId: true },
       // make_contours.py로 고도 타일에서 미리 계산한 10 m 간격 등고선
       contours: { type: 'geojson', data: 'contours.geojson' },
       track: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+      pick: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+      route: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     },
     layers: [
       { id: 'osm', type: 'raster', source: 'osm' },
@@ -95,6 +100,13 @@ const map = new maplibregl.Map({
         layout: { 'symbol-placement': 'line', 'symbol-spacing': 300, 'text-field': ['concat', ['to-string', ['get', 'ele']], ' m'],
                   'text-font': ['Open Sans Semibold'], 'text-size': 11 },
         paint: { 'text-color': '#5a3a1e', 'text-halo-color': 'rgba(255, 255, 255, 0.85)', 'text-halo-width': 1.2 } },
+      // 고른 조각(노랑)·찾은 경로(초록): 주황 등산로 위에 굵게, 흰 테두리로 구분
+      ...['pick', 'route'].flatMap((id) => [
+        { id: `${id}-casing`, type: 'line', source: id, layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 6, 16, 13] } },
+        { id, type: 'line', source: id, layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': id === 'pick' ? '#e0a800' : '#16a34a', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 3.5, 16, 8] } },
+      ]),
       // 내 궤적: 주황 등산로·초록 숲과 구분되는 분홍
       { id: 'track-casing', type: 'line', source: 'track', layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 6, 16, 13] } },
@@ -182,7 +194,9 @@ document.querySelector('.maplibregl-ctrl-geolocate').addEventListener('click', a
 });
 
 // ── 궤적 기록 · GPX 저장/불러오기 (track.js) ──
-setupTrack(map, { maplibregl, say, pitch: PITCH, demUrl: DEM.tiles[0] });
+const profile = createProfile({ say, demUrl: DEM.tiles[0] }); // 고도 타일을 한 번 읽어 기록·선택이 같이 씀
+setupTrack(map, { maplibregl, say, pitch: PITCH, profile });
+setupRoute(map, { maplibregl, say, profile });
 
 
 // 산에서 신호가 약해도 열리도록 (sw.js). https·localhost에서만 동작

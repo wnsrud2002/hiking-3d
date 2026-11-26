@@ -1,0 +1,42 @@
+// 자체 검사: node selftest.mjs  (브라우저 없이 계산 로직만)
+import { climb, dist } from './profile.js';
+import { buildGraph, shortestPath, toblerMinutes, resample } from './route.js';
+
+const ok = (cond, msg) => { if (!cond) throw new Error(msg); };
+const near = (a, b, tol, msg) => ok(Math.abs(a - b) <= tol, `${msg}: ${a} != ${b}`);
+
+// climb: 오르내림 누적, 3 m 미만 떨림 무시, 끝부분 잔여 반영
+for (const [e, u, d] of [[[100, 150, 120, 200], 130, 30], [[100, 101, 99, 101, 99, 101, 100], 0, 0],
+  [[100, 102, 104, 106], 6, 0], [[500, 400, 300], 0, 200], [[100, 300, 100], 200, 200]]) {
+  const r = climb(e);
+  ok(r.up === u && r.down === d, `climb ${JSON.stringify(e)} → ${JSON.stringify(r)}`);
+}
+
+// 그래프: 위도 35°에서 0.001° ≈ 경도 91 m / 위도 111 m
+// A─B─C 직선과 A─D─C 우회로 → A→C는 직선
+const A = [129, 35], B = [129.001, 35], C = [129.002, 35], D = [129.001, 35.002];
+const g1 = buildGraph([[A, B, C], [A, D, C]]);
+const r1 = shortestPath(g1, 0, 2);
+ok(r1.path.length === 3 && r1.path[1] === 1, `직선을 골라야 함: ${r1.path}`);
+near(r1.length, dist({ lon: 129, lat: 35 }, { lon: 129.002, lat: 35 }), 0.01, '직선 길이');
+
+// 갈림길: 다른 선의 중간 꼭짓점을 공유하면 연결됨
+const g2 = buildGraph([[A, B, C], [B, D]]);
+ok(shortestPath(g2, g2.pts.findIndex((p) => p.lat === 35.002), 0) !== null, '중간 꼭짓점 공유 갈림길 연결');
+
+// 끊긴 두 덩어리 → null, 끝점이 5 m 떨어진 경우엔 GAP(10 m)로 이어 줌
+const far = buildGraph([[A, B], [[129.01, 35], [129.011, 35]]]);
+ok(shortestPath(far, 0, 3) === null && far.joined === 0, '멀리 떨어지면 경로 없음');
+const gap = buildGraph([[A, B], [[129.001055, 35], [129.002, 35]]]); // B와 약 5 m
+ok(gap.joined >= 1 && shortestPath(gap, 0, 3) !== null, '5 m 끊김은 이어 줌');
+
+// Tobler: 평지 1 km ≈ 5.04 km/h → 11.9분, 경사 +20%는 훨씬 느림
+const flat = [{ lon: 129, lat: 35 }, { lon: 129 + 1 / 91.29, lat: 35 }];
+near(toblerMinutes(flat, [0, 0]), 60 / (6 * Math.exp(-0.175)) * dist(flat[0], flat[1]) / 1000, 0.01, 'Tobler 평지');
+ok(toblerMinutes(flat, [0, 200]) > 2 * toblerMinutes(flat, [0, 0]), 'Tobler 오르막이 더 느림');
+
+// resample: 100 m 선을 20 m 간격 → 6점, 끝점 보존
+const rs = resample([{ lon: 129, lat: 35 }, { lon: 129 + 0.1 / 91.29, lat: 35 }], 20);
+ok(rs.length === 6 && rs.at(-1).lon === 129 + 0.1 / 91.29, `resample ${rs.length}`);
+
+console.log('자체 검사 통과: climb 5 · 그래프·최단경로 5 · Tobler 2 · resample 1');
