@@ -3,10 +3,10 @@
 // - MapLibre(버전 고정 CDN): 바뀔 일이 없어 저장본 우선
 // - 지도·고도 타일, 글꼴: 한 번 본 것만 저장. OSM 정책상 미리 대량으로 받지 않음.
 //   OSM 응답 헤더가 stale-while-revalidate·stale-if-error 7일을 허용하므로 그 방식을 따름
-const APP = 'hiking-3d-app-v1';
+const APP = 'hiking-3d-app-v2'; // 앱 파일 구성이 바뀌면 숫자를 올림 (v2: track.js 분리)
 const TILES = 'hiking-3d-tiles'; // 앱 버전이 바뀌어도 이미 본 타일은 유지
 const ML = 'https://unpkg.com/maplibre-gl@6.19.0/dist/';
-const PRECACHE = ['./', 'trails.geojson', 'contours.geojson',
+const PRECACHE = ['./', 'track.js', 'trails.geojson', 'contours.geojson',
   ML + 'maplibre-gl.css', ML + 'maplibre-gl.mjs', ML + 'maplibre-gl-worker.mjs',
   'https://demotiles.maplibre.org/font/Open%20Sans%20Semibold/0-255.pbf'];
 const TILE_HOSTS = ['tile.openstreetmap.org', 's3.amazonaws.com', 'demotiles.maplibre.org'];
