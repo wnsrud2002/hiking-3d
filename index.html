@@ -123,6 +123,53 @@ geo.on('error', (e) => {
   say(e.code === 1 ? '위치 권한이 거부되었습니다. 지도는 계속 쓸 수 있어요.' : '위치를 가져오지 못했습니다.');
 });
 
+// ── 진행 방향 화살표 ──
+// MapLibre엔 방향 표시가 없어 직접 그림. 나침반을 우선 쓰고, 없으면 GPS 진행 방향(움직일 때만 값이 있음)
+const arrowEl = document.createElement('div');
+// 지도를 60° 기울이면 바닥에 눕힌 화살표가 납작해지고 파란 점(지름 약 20px)에 가려져서 크게, 점에서 떨어뜨려 그림
+arrowEl.innerHTML = '<svg width="96" height="96" viewBox="0 0 96 96" aria-hidden="true">'
+  + '<path d="M48 4 L66 40 L48 31 L30 40 Z" fill="#1a73e8" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/></svg>';
+// 96px 정사각형의 중심 = 내 위치라서 회전해도 화살표가 점 주위를 돎
+const arrow = new maplibregl.Marker({ element: arrowEl, rotationAlignment: 'map', pitchAlignment: 'map' });
+let myPos = null, heading = null, compassOn = false, frame = 0;
+
+function renderArrow() {
+  if (frame) return;
+  frame = requestAnimationFrame(() => { // 나침반 이벤트가 초당 60번 와서 그리기는 화면 갱신마다 한 번만
+    frame = 0;
+    if (myPos && heading != null) arrow.setLngLat(myPos).setRotation(heading).addTo(map);
+  });
+}
+
+function onCompass(e) {
+  const raw = e.webkitCompassHeading // iOS: 북쪽 기준 시계방향
+    ?? (e.alpha != null && (e.absolute || e.type === 'deviceorientationabsolute') ? 360 - e.alpha : null); // 안드로이드: 반시계
+  if (raw == null || isNaN(raw)) return;
+  const h = (raw + (screen.orientation?.angle ?? 0)) % 360; // 가로 화면이면 기기 위쪽과 화면 위쪽이 다름
+  // 센서 값이 떨려 화살표가 흔들림 → 20%씩만 따라감. 359°→0° 경계는 최단 방향 차이로 계산
+  heading = compassOn ? (heading + ((h - heading + 540) % 360 - 180) * 0.2 + 360) % 360 : h;
+  compassOn = true;
+  renderArrow();
+}
+
+geo.on('geolocate', (pos) => {
+  myPos = [pos.coords.longitude, pos.coords.latitude];
+  if (!compassOn && pos.coords.heading != null && !isNaN(pos.coords.heading)) heading = pos.coords.heading;
+  renderArrow();
+});
+
+// iOS는 나침반 권한을 버튼 누름(사용자 동작) 안에서만 요청할 수 있어 위치 버튼에 붙임
+let compassAsked = false;
+document.querySelector('.maplibregl-ctrl-geolocate').addEventListener('click', async () => {
+  if (compassAsked) return;
+  compassAsked = true;
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'
+      && (await DeviceOrientationEvent.requestPermission().catch(() => 'denied')) !== 'granted') {
+    return say('나침반 권한이 없어 걸을 때만 방향이 표시됩니다.');
+  }
+  addEventListener('ondeviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation', onCompass);
+});
+
 // ── 궤적 기록 · GPX 저장/불러오기 ──
 const KEY = 'hiking-3d:track';
 const MAX_ACC = 50; // m. 숲·골짜기에서 튀는 점 제거
@@ -243,6 +290,10 @@ map.addControl({
   onRemove() {},
 });
 updateStatus();
+
+// 산에서 신호가 약해도 열리도록 (sw.js). https·localhost에서만 동작
+navigator.serviceWorker?.register('sw.js').catch(() => {});
+addEventListener('offline', () => say('오프라인: 저장해 둔 지도·데이터만 표시됩니다.'));
 
 map.on('load', () => {
   drawTrack(rec.points);

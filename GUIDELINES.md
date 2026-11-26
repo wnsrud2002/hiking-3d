@@ -52,8 +52,24 @@ hiking-3d/
 ├── trails.geojson    등산로 데이터 (fetch_trails.py가 생성, 커밋함)
 ├── fetch_trails.py   OSM에서 등산로를 받아 trails.geojson으로 저장 (표준 라이브러리만)
 ├── contours.geojson  등고선 데이터 (make_contours.py가 생성, 커밋함)
-└── make_contours.py  고도 타일 → marching squares → 등고선 (표준 라이브러리만)
+├── make_contours.py  고도 타일 → marching squares → 등고선 (표준 라이브러리만)
+└── sw.js             서비스 워커: 산에서 신호가 없어도 열리도록 저장
 ```
+
+`index.html`이 304줄로 3장의 분리 기준(약 300줄)에 닿았다. 다음 기능을 넣을 때 기록·GPX 부분을 `track.js`로 먼저 떼어낸다.
+
+### 오프라인 (sw.js)
+
+| 대상 | 방식 | 이유 |
+|---|---|---|
+| 앱·`trails`·`contours` (같은 출처) | 저장본 먼저, 뒤에서 갱신. `?v=` 쿼리는 무시 | 신호가 약해도 바로 열림. 대신 **배포 후 두 번째 열 때 새 버전** |
+| MapLibre (unpkg, 버전 고정) | 저장본 우선 | 바뀔 일 없음 |
+| OSM·고도 타일, 글꼴 | **본 것만** 저장. 저장 3시간 지나면 보여준 뒤 뒤에서 갱신. 최대 3,000개 | OSM이 대량 사전 다운로드는 금지하고, 응답 헤더로 `stale-while-revalidate`·`stale-if-error` 7일은 허용 |
+
+- 산에 가기 전 **집에서 승학산 일대를 한 번 둘러보면** 그 타일이 저장된다.
+- 앱 파일 구성이 바뀌면 `sw.js`의 `APP` 이름(`hiking-3d-app-v1`)의 숫자를 올린다. 타일 저장소는 유지된다.
+- localhost 개발 중에도 서비스 워커가 저장본을 먼저 주므로, 수정 후엔 **두 번 새로고침**해야 반영된다.
+- 검증(2026-11-26): 로컬 서버를 끈 상태에서 앱·등산로·등고선·지형(정상 467.9 m)이 모두 표시됨. 저장된 타일은 1~2 ms에 `x-saved` 헤더와 함께 저장본에서 나옴.
 
 ### 등고선 데이터 갱신
 
@@ -106,7 +122,11 @@ python3 fetch_trails.py
 ## 5. 위치 표시 규칙
 
 - `GeolocateControl` 옵션: `enableHighAccuracy: true`, `trackUserLocation: true`, `showAccuracyCircle: true`.
-- 진행 방향(heading) 표시는 MapLibre에 **없다** (`showUserHeading`은 Mapbox 전용, v6.19.0 번들에 없음). 필요하면 직접 만든다: `coords.heading`(움직일 때만 값이 있음)이나 나침반 이벤트로 화살표 마커를 회전.
+- 진행 방향(heading) 표시는 MapLibre에 **없어서** (`showUserHeading`은 Mapbox 전용) 직접 만든 파란 화살표 마커를 쓴다.
+  - 나침반 우선: iOS `deviceorientation`의 `webkitCompassHeading`, 안드로이드 `deviceorientationabsolute`의 `360 − alpha`. 가로 화면이면 `screen.orientation.angle`을 더한다.
+  - 나침반 권한(`DeviceOrientationEvent.requestPermission`)은 **iOS뿐 아니라 최신 Chrome에도 있다.** 사용자 동작 안에서만 요청할 수 있어 위치 버튼 클릭 때 한 번만 묻는다. 거부되면 GPS 진행 방향(`coords.heading`, 움직일 때만)으로 대신한다.
+  - 센서 떨림 때문에 새 값의 20%씩만 따라간다. 359°↔0° 경계는 최단 방향 차이로 계산 (270°→0° 입력 시 288°, 216°가 아님).
+  - 지도를 60° 기울이면 바닥에 눕힌 화살표가 납작해지고 점에 가려져서 96 px 크기로, 점에서 떨어뜨려 그린다.
 - 권한이 이미 거부된 상태면 MapLibre는 버튼만 비활성화하고 `error` 이벤트를 보내지 않는다 → 시작 시 `navigator.permissions`로 직접 확인해 안내한다.
 - 위치 기능은 **https 또는 localhost에서만** 동작한다. `file://`로 열면 안 된다.
 - 위치 권한 거부·실패 시 지도는 그대로 쓰고, 화면에 짧게 안내만 띄운다 (앱이 멈추면 안 됨).
@@ -144,7 +164,7 @@ cd ~/dev/workspace/hiking-3d && python3 -m http.server 8000
 
 - 주소: https://wnsrud2002.github.io/hiking-3d/ (`main` 브랜치 루트를 그대로 서비스)
 - `git push`하면 1분 안팎으로 자동 배포된다. 확인: `gh api repos/wnsrud2002/hiking-3d/pages/builds/latest --jq .status` → `built`
-- GitHub Pages는 약 10분 동안 캐시한다. 폰에서 바로 반영이 안 되면 주소 뒤에 `?v=숫자`를 붙여 연다.
+- GitHub Pages는 약 10분 동안 캐시하고, 서비스 워커는 저장본을 먼저 보여준다. 폰에서 새 버전은 **배포 후 두 번째 열 때** 보인다.
 - 공개 저장소다. 커밋 이메일은 GitHub 비공개 주소(noreply)를 쓴다 (저장소 로컬 git 설정).
 - 모바일: 지도 버튼은 44 px (iOS 최소 터치 크기). MapLibre 기본 29 px는 장갑 낀 손으로 누르기 어렵다.
 
