@@ -1,12 +1,14 @@
 // 산에서 신호가 약하거나 없어도 열리도록 저장해 두는 서비스 워커.
-// - 앱·데이터(같은 출처): 저장본을 바로 보여주고 뒤에서 새로 받음 → 배포 후 두 번째 열 때 새 버전
+// - 앱·데이터(같은 출처): 저장본을 바로 보여주고, 페이지를 열 때마다 앱 파일 전체를 한 묶음으로 새로 받아
+//   전부 성공해야 한꺼번에 교체 → 배포 후 두 번째 열 때 새 버전
 // - MapLibre(버전 고정 CDN): 바뀔 일이 없어 저장본 우선
 // - 지도·고도 타일, 글꼴: 한 번 본 것만 저장. OSM 정책상 미리 대량으로 받지 않음.
 //   OSM 응답 헤더가 stale-while-revalidate·stale-if-error 7일을 허용하므로 그 방식을 따름
-const APP = 'hiking-3d-app-v2'; // 앱 파일 구성이 바뀌면 숫자를 올림 (v2: track.js 분리)
+const APP = 'hiking-3d-app-v3'; // 앱 파일 구성·갱신 방식이 바뀌면 숫자를 올림 (v3: 묶음 갱신)
 const TILES = 'hiking-3d-tiles'; // 앱 버전이 바뀌어도 이미 본 타일은 유지
 const ML = 'https://unpkg.com/maplibre-gl@6.19.0/dist/';
-const PRECACHE = ['./', 'track.js', 'trails.geojson', 'contours.geojson',
+const APP_FILES = ['./', 'track.js', 'trails.geojson', 'contours.geojson']; // 항상 같은 버전끼리 써야 하는 묶음
+const PRECACHE = [...APP_FILES,
   ML + 'maplibre-gl.css', ML + 'maplibre-gl.mjs', ML + 'maplibre-gl-worker.mjs',
   'https://demotiles.maplibre.org/font/Open%20Sans%20Semibold/0-255.pbf'];
 const TILE_HOSTS = ['tile.openstreetmap.org', 's3.amazonaws.com', 'demotiles.maplibre.org'];
@@ -14,7 +16,8 @@ const TILE_FRESH = 3 * 3600e3; // OSM max-age(약 3시간)가 지나면 뒤에�
 const MAX_TILES = 3000; // 타일 1개 20~110 KB → 최대 수십~100여 MB. 넘으면 오래 저장된 것부터 지움
 
 self.addEventListener('install', (e) => e.waitUntil(
-  caches.open(APP).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting())));
+  // cache: 'reload' — GitHub Pages의 10분 HTTP 캐시에 남은 이전 파일을 저장하지 않도록
+  caches.open(APP).then((c) => c.addAll(PRECACHE.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting())));
 
 self.addEventListener('activate', (e) => e.waitUntil(
   caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== APP && k !== TILES).map((k) => caches.delete(k))))
@@ -30,17 +33,27 @@ self.addEventListener('fetch', (e) => {
 
 async function app(e, url) {
   const cache = await caches.open(APP);
-  const key = url.origin + url.pathname; // ?v=6 같은 캐시 우회용 쿼리는 같은 파일로 취급
+  // ?v=6 같은 캐시 우회용 쿼리와 index.html은 묶음의 같은 파일로 취급
+  const key = (url.origin + url.pathname).replace(/index\.html$/, '');
+  if (e.request.mode === 'navigate') e.waitUntil(refreshApp());
   const cached = await cache.match(key);
-  const update = fetch(e.request).then((res) => {
-    if (res.ok) cache.put(key, res.clone());
-    return res;
-  });
-  if (cached) {
-    e.waitUntil(update.catch(() => {})); // 오프라인이면 갱신만 조용히 실패
-    return cached;
-  }
-  return update;
+  if (cached) return cached;
+  const res = await fetch(e.request);
+  if (res.ok) cache.put(key, res.clone());
+  return res;
+}
+
+// 파일마다 따로 갱신하면 갱신 도중 '새 index.html + 이전 track.js'처럼 버전이 섞여 기능이 빠지거나
+// 깨진다 (2026-11-26 배포본에서 실제로 발생). 전부 받아졌을 때만 한꺼번에 교체한다
+async function refreshApp() {
+  try {
+    const res = await Promise.all(APP_FILES.map((f) => fetch(f, { cache: 'no-cache' }))); // 서버에 변경 여부 확인
+    if (!res.every((r) => r.ok)) return;
+    const bodies = await Promise.all(res.map((r) => r.blob()));
+    const cache = await caches.open(APP);
+    await Promise.all(APP_FILES.map((f, i) =>
+      cache.put(new URL(f, self.registration.scope).href, new Response(bodies[i], { headers: res[i].headers }))));
+  } catch { /* 오프라인·일부 실패: 지금 묶음을 그대로 씀 */ }
 }
 
 async function cacheFirst(req) {

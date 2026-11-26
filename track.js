@@ -55,7 +55,7 @@ export function setupTrack(map, { maplibregl, say, pitch, demUrl }) {
     if (!navigator.geolocation) return say('이 브라우저는 위치 기능이 없어 기록할 수 없습니다.');
     if (!resume) rec = { recording: true, points: [] };
     rec.recording = true; save(); drawTrack(rec.points);
-    document.getElementById('profile').style.display = 'none'; // 기록 상태 표시와 같은 자리라 숨김
+    if (profEl) profEl.style.display = 'none'; // 기록 상태 표시와 같은 자리라 숨김
     watchId = navigator.geolocation.watchPosition(onPos, (e) => {
       say(`위치를 받지 못했습니다: ${e.message}`);
       if (e.code === 1) stop();
@@ -131,9 +131,10 @@ export function setupTrack(map, { maplibregl, say, pitch, demUrl }) {
     return v < -100 ? null : v; // 고도 타일의 -1000 m대 결측 픽셀
   }
 
+  // #profile이 없는 이전 index.html과 섞여 불려도(갱신 도중) 기록 기능은 멈추지 않게
   const profEl = document.getElementById('profile');
   async function showProfile(pts) {
-    if (pts.length < 2) return;
+    if (!profEl || pts.length < 2) return;
     let eles;
     try { eles = await Promise.all(pts.map(elevation)); }
     catch { return say('고도 타일을 받지 못해 고도 프로필을 그릴 수 없습니다.'); }
