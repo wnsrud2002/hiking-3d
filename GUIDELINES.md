@@ -20,6 +20,7 @@
 | 고도 데이터 | AWS Terrain Tiles (Terrarium 인코딩) | 무료·키 없음, 한국 약 30 m 해상도 |
 | 지형 음영 | MapLibre `hillshade` 레이어 (고도 소스 재사용) | 추가 의존성 없이 능선·계곡이 또렷해짐 |
 | 배경 지도·등산로 | OpenStreetMap 래스터 타일 | 등산로가 점선으로 이미 그려져 있음 |
+| 등산로 강조 | `trails.geojson` (OSM 스냅샷) + `line` 레이어 2개(테두리+주황) | 지형 위에 자동으로 붙어 그려짐 |
 | 위치 | 브라우저 Geolocation API (MapLibre `GeolocateControl`) | 추가 코드 거의 없음 |
 
 - 빌드 도구·npm·프레임워크 없음. **`index.html` 한 파일**에서 시작한다.
@@ -45,9 +46,22 @@
 
 ```
 hiking-3d/
-├── GUIDELINES.md   이 문서
-└── index.html      앱 전체 (HTML + CSS + JS)
+├── GUIDELINES.md     이 문서
+├── index.html        앱 전체 (HTML + CSS + JS)
+├── trails.geojson    등산로 데이터 (fetch_trails.py가 생성, 커밋함)
+└── fetch_trails.py   OSM에서 등산로를 받아 trails.geojson으로 저장 (표준 라이브러리만)
 ```
+
+### 등산로 데이터 갱신
+
+```bash
+python3 fetch_trails.py
+```
+
+- 브라우저에서 매번 Overpass를 부르지 않는다. 실측: 메인 서버 35 s 또는 502, 미러 5 s, 다른 미러는 타임아웃 → 미리 받아 파일로 둔다.
+- 범위: 승학산 정상 ±0.03°(약 ±3 km). 다른 산은 스크립트의 `CENTER`와 `index.html`의 `START`를 같이 바꾼다.
+- 포함: `highway=path|footway|steps`. 제외: `footway=sidewalk|crossing`(시내 보도·횡단보도가 footway의 60%), `track`(임도).
+- 2026-11-26 기준 406개 길, 221 KB.
 
 파일 분리는 `index.html`이 약 300줄을 넘거나, 같은 로직을 두 곳에서 쓰게 될 때만 한다.
 
@@ -95,8 +109,8 @@ cd ~/dev/workspace/hiking-3d && python3 -m http.server 8000
 
 | 단계 | 내용 | 완료 기준 |
 |---|---|---|
-| 1 | 3D 지형 + 음영 + OSM 지도 + 내 위치 | 6장 체크리스트 1~5 통과 |
-| 2 | 등산로 강조 (Overpass API로 `highway=path/footway` 받아 선 레이어) | 기본 지도보다 등산로가 확실히 눈에 띔 |
+| 1 ✅ | 3D 지형 + 음영 + OSM 지도 + 내 위치 | 6장 체크리스트 1~5 통과 |
+| 2 ✅ | 등산로 강조 (Overpass 스냅샷 → `trails.geojson` → 선 레이어) | 기본 지도보다 등산로가 확실히 눈에 띔. 파일이 없으면 안내 후 지도는 계속 동작 |
 | 3 | 폰에서 실행 (https 정적 호스팅) | 실제 산에서 위치가 등산로 위에 찍힘 |
 | 4 | GPX 기록·다운로드, 다녀온 궤적 3D로 다시 보기 | 기록한 GPX를 다시 불러와 겹쳐 보임 |
 | (선택) | 등고선 표시: 고도 타일에서 등고선을 만들어 3D 지형 위에 그림 | 10 m 간격 선과 100 m 굵은 선이 지형과 맞게 보임 |
@@ -110,5 +124,6 @@ cd ~/dev/workspace/hiking-3d && python3 -m http.server 8000
 ## 8. 라이선스·이용 정책
 
 - 화면에 출처 표기 필수: `© OpenStreetMap contributors`, 고도 데이터 출처(AWS Terrain Tiles / Mapzen).
+- `trails.geojson`은 OSM 데이터(ODbL 라이선스, 출처 표기하면 재배포 가능)라서 지도 하단의 OSM 출처 표기로 충족한다.
 - OSM 타일 서버는 개인 소량 사용만 허용. 대량 사전 다운로드(오프라인 캐싱 목적의 긁어오기) 금지.
 - 공개 배포해서 사용자가 늘면 타일 소스를 다른 무료/자체 호스팅으로 바꾼다.

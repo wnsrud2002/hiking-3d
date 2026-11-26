@@ -46,10 +46,19 @@ const map = new maplibregl.Map({
       // 지형과 음영이 같은 소스를 쓰면 MapLibre가 해상도 문제로 경고하므로 분리
       terrain: DEM,
       shade: DEM,
+      // fetch_trails.py로 미리 받은 OSM 등산로 (Overpass를 매번 부르면 느리고 자주 실패)
+      trails: { type: 'geojson', data: 'trails.geojson' },
     },
     layers: [
       { id: 'osm', type: 'raster', source: 'osm' },
       { id: 'hillshade', type: 'hillshade', source: 'shade', paint: { 'hillshade-exaggeration': 0.4 } },
+      // 어두운 테두리를 깔아야 초록 숲과 밝은 시가지 양쪽에서 다 보임
+      { id: 'trails-casing', type: 'line', source: 'trails', layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#3a1d00', 'line-opacity': 0.6,
+                 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 2.5, 16, 7] } },
+      { id: 'trails', type: 'line', source: 'trails', layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#ff7a1a',
+                 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 1.2, 16, 4] } },
     ],
     terrain: { source: 'terrain', exaggeration: EXAGGERATION },
   },
@@ -76,6 +85,9 @@ function say(text) {
 // 권한이 이미 꺼져 있으면 MapLibre는 버튼만 조용히 비활성화하고 error 이벤트를 안 보냄
 navigator.permissions?.query({ name: 'geolocation' }).then((p) => {
   if (p.state === 'denied') say('위치 권한이 꺼져 있어 내 위치를 표시할 수 없습니다. 브라우저 설정에서 허용해 주세요.');
+});
+map.on('error', (e) => {
+  if (e.sourceId === 'trails') say('등산로 데이터를 불러오지 못했습니다. 기본 지도의 점선만 표시됩니다.');
 });
 geo.on('error', (e) => {
   say(e.code === 1 ? '위치 권한이 거부되었습니다. 지도는 계속 쓸 수 있어요.' : '위치를 가져오지 못했습니다.');
