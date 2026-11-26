@@ -4,7 +4,9 @@
 실행: python3 fetch_trails.py
 """
 import json
+import math
 import sys
+from collections import defaultdict
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -17,13 +19,18 @@ QUERY = (f'[out:json][timeout:60];way["highway"~"^(path|footway|steps)$"]'
          f'["footway"!~"^(sidewalk|crossing|alley)$"]["path"!="alley"]({S},{W},{N},{E});out geom;')
 # 낙동강 둔치 산책로는 최고 고도가 10 m 미만이고, 10→15 m로 올려도 걸리는 길 수가 같음 → 여유 있게 15 m
 MIN_TOP = 15
+BUILDINGS = f'[out:json][timeout:90];way["building"]({S},{W},{N},{E});out center;'
+# 태그가 그냥 path인 마을 골목은 건물 사이로 지나감. 길의 80% 이상이 건물 중심 25 m 안이면 제외.
+# 실측 분포가 0~10%(233개)와 90~100%(19개)로 갈리고 80~90%는 0개라 경계가 뚜렷함
+BUILDING_R, BUILDING_FRAC = 25, 0.8
+MX, MY = 111320 * math.cos(math.radians(CENTER[1])), 111320  # 위경도 1°당 m (범위가 좁아 평면 근사)
 # 메인 서버가 느리거나(35 s) 502를 내는 일이 잦아 미러를 먼저 시도
 SERVERS = ["https://maps.mail.ru/osm/tools/overpass/api/interpreter",
            "https://overpass-api.de/api/interpreter"]
 
 
-def fetch():
-    body = urllib.parse.urlencode({"data": QUERY}).encode()
+def fetch(query):
+    body = urllib.parse.urlencode({"data": query}).encode()
     for url in SERVERS:
         try:
             req = urllib.request.Request(url, body, {"User-Agent": "hiking-3d"})
@@ -47,6 +54,28 @@ def elevation(lon, lat):
     return v if v > -100 else 0  # 고도 타일의 -1000 m대 결측 픽셀
 
 
+def building_fraction(buildings):
+    """건물 중심점들 → (길 → 10 m 간격 표본 중 건물 BUILDING_R 안에 든 비율) 함수."""
+    cell = lambda x, y: (int(x * MX / BUILDING_R), int(y * MY / BUILDING_R))
+    grid = defaultdict(list)
+    for x, y in buildings:
+        grid[cell(x, y)].append((x, y))
+
+    def near(x, y):
+        cx, cy = cell(x, y)
+        return any(math.hypot((bx - x) * MX, (by - y) * MY) < BUILDING_R
+                   for dx in (-1, 0, 1) for dy in (-1, 0, 1) for bx, by in grid.get((cx + dx, cy + dy), ()))
+
+    def fraction(way):
+        pts = [(p["lon"], p["lat"]) for p in way["geometry"]]
+        samples = [pts[0]]  # 꼭짓점만 보면 긴 직선 구간이 표본에서 빠지므로 10 m 간격으로 채움
+        for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+            n = max(1, int(math.hypot((x2 - x1) * MX, (y2 - y1) * MY) // 10))
+            samples += [(x1 + (x2 - x1) * k / n, y1 + (y2 - y1) * k / n) for k in range(1, n + 1)]
+        return sum(near(x, y) for x, y in samples) / len(samples)
+    return fraction
+
+
 def to_geojson(ways):
     # 소수 5자리 ≈ 1 m: 30 m DEM 위에 그리기엔 충분하고 파일이 1/3로 줄어듦
     return {"type": "FeatureCollection", "features": [
@@ -57,11 +86,15 @@ def to_geojson(ways):
 
 
 if __name__ == "__main__":
-    osm = fetch()
-    ways = [w for w in osm["elements"] if max(elevation(p["lon"], p["lat"]) for p in w["geometry"]) >= MIN_TOP]
+    osm = fetch(QUERY)
+    high = [w for w in osm["elements"] if max(elevation(p["lon"], p["lat"]) for p in w["geometry"]) >= MIN_TOP]
+    buildings = [(b["center"]["lon"], b["center"]["lat"]) for b in fetch(BUILDINGS)["elements"] if "center" in b]
+    fraction = building_fraction(buildings)
+    ways = [w for w in high if fraction(w) < BUILDING_FRAC]
     gj = to_geojson(ways)
     assert gj["features"], "등산로 0개: 범위나 쿼리를 확인"
     out = Path(__file__).with_name("trails.geojson")
     out.write_text(json.dumps(gj, separators=(",", ":")))
-    print(f"받은 길 {len(osm['elements'])}개 중 저지대(최고 {MIN_TOP} m 미만) {len(osm['elements']) - len(ways)}개 제외 → "
+    print(f"받은 길 {len(osm['elements'])}개 → 저지대(최고 {MIN_TOP} m 미만) {len(osm['elements']) - len(high)}개 제외 → "
+          f"건물 사이(건물 {len(buildings)}개 기준) {len(high) - len(ways)}개 제외 → "
           f"{len(ways)}개, {out.stat().st_size:,} B 저장 (OSM 기준 {osm['osm3s']['timestamp_osm_base']})")
