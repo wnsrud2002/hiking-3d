@@ -7,6 +7,8 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-gl.css">
 <style>
   html, body, #map { margin: 0; height: 100%; }
+  /* 기본 29px는 산에서 장갑 낀 손으로 누르기 어려움 → iOS 최소 터치 크기 44px */
+  .maplibregl-ctrl-group button { width: 44px; height: 44px; }
   #notice {
     position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
     padding: 8px 14px; border-radius: 6px; background: rgba(20, 20, 20, .85);
