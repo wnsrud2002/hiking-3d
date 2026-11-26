@@ -48,8 +48,8 @@
 ```
 hiking-3d/
 ├── GUIDELINES.md     이 문서
-├── index.html        지도·지형·등산로·등고선·내 위치·방향 화살표·오프라인 등록 (184줄)
-├── track.js          궤적 기록·GPX 저장/불러오기. setupTrack(map, { maplibregl, say, pitch })로 붙임 (129줄)
+├── index.html        지도·지형·등산로·등고선·내 위치·방향 화살표·오프라인 등록 (194줄)
+├── track.js          궤적 기록·GPX 저장/불러오기·고도 프로필. setupTrack(map, { maplibregl, say, pitch, demUrl })로 붙임 (193줄)
 ├── trails.geojson    등산로 데이터 (fetch_trails.py가 생성, 커밋함)
 ├── fetch_trails.py   OSM에서 등산로를 받아 trails.geojson으로 저장 (표준 라이브러리만)
 ├── contours.geojson  등고선 데이터 (make_contours.py가 생성, 커밋함)
@@ -143,6 +143,18 @@ python3 fetch_trails.py
 - ■로 멈추면 `hiking-YYYYMMDDhhmm.gpx`(현지 시각, GPX 1.1)를 내려받는다. 다음 ●을 누르면 이전 기록은 지워진다.
 - 불러오기는 `trkpt`만 읽는다. 여러 `trkseg`는 한 선으로 이어 그린다. `accept`를 비운 이유: `.gpx`를 지정하면 iOS가 GPX 파일을 회색으로 막는 경우가 있다.
 - 색: 등산로 주황, 내 궤적 분홍(흰 테두리).
+
+### 고도 프로필 (■로 멈추거나 📂로 불러오면 왼쪽 아래에 표시)
+
+- 높이는 폰 GPS 고도(±10~20 m로 튐)가 아니라 **지도와 같은 고도 타일 z14**에서 읽는다. 브라우저에서 PNG를 캔버스로 풀 때 `colorSpaceConversion: 'none'`을 꼭 준다 — 색 보정이 들어가면 RGB에 담긴 고도 값이 바뀐다.
+- 누적 오르막/내리막은 기준점에서 **3 m 이상 바뀔 때만** 센다(떨림 누적 방지). 마지막 기준점 이후 3 m 미만으로 남은 변화도 끝에서 더한다 — 안 하면 100→106 m가 4 m로 계산됐다.
+- 그래프는 SVG, 점이 400개보다 많으면 솎아서 그린다. 기록을 다시 시작하면 숨긴다. 닫기 버튼 44×44 px.
+- 검증(2026-11-26): 승학산 정상을 지나는 실제 등산로(90점, 2.43 km)에서 Python으로 같은 타일을 직접 푼 값과 **완전히 일치** — ↑ 493 m, ↓ 88 m, 최고 479 m, 최저 24 m. 계산 0.1초.
+- 오르내림 자체 검사:
+
+```bash
+node --input-type=module -e "import { climb } from './track.js'; const t = [[[100,150,120,200],130,30],[[100,101,99,101,99,101,100],0,0],[[100,102,104,106],6,0],[[500,400,300],0,200],[[100,300,100],200,200]]; for (const [e,u,d] of t) { const r = climb(e); if (r.up !== u || r.down !== d) throw new Error(JSON.stringify([e, r])); } console.log('climb 통과', t.length)"
+```
 
 ## 6. 실행과 확인
 
