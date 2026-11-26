@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hiking-3d · 승학산</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-gl.css">
+<style>
+  html, body, #map { margin: 0; height: 100%; }
+  #notice {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    padding: 8px 14px; border-radius: 6px; background: rgba(20, 20, 20, .85);
+    color: #e6e6e6; font: 14px system-ui, sans-serif; display: none;
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="notice" role="status" aria-live="polite"></div>
+<script type="module">
+// v6부터 ESM 전용이라 UMD <script src> 대신 import
+import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-gl.mjs';
+
+const START = [128.9798, 35.1168]; // 승학산 정상 (OSM, 497 m)
+const ZOOM = 14, PITCH = 60, BEARING = -20;
+const EXAGGERATION = 1.5; // 30 m DEM + 500 m 미만 산이라 1.0이면 밋밋함
+
+const DEM = {
+  type: 'raster-dem',
+  tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+  encoding: 'terrarium', tileSize: 256, maxzoom: 15,
+  attribution: '고도: <a href="https://registry.opendata.aws/terrain-tiles/">AWS Terrain Tiles</a> (Mapzen)',
+};
+
+const map = new maplibregl.Map({
+  container: 'map',
+  center: START, zoom: ZOOM, pitch: PITCH, bearing: BEARING, maxPitch: 85,
+  style: {
+    version: 8,
+    sources: {
+      osm: {
+        type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+        tileSize: 256, maxzoom: 19,
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      },
+      // 지형과 음영이 같은 소스를 쓰면 MapLibre가 해상도 문제로 경고하므로 분리
+      terrain: DEM,
+      shade: DEM,
+    },
+    layers: [
+      { id: 'osm', type: 'raster', source: 'osm' },
+      { id: 'hillshade', type: 'hillshade', source: 'shade', paint: { 'hillshade-exaggeration': 0.4 } },
+    ],
+    terrain: { source: 'terrain', exaggeration: EXAGGERATION },
+  },
+});
+window.map = map;
+
+map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }));
+map.addControl(new maplibregl.ScaleControl());
+
+const geo = new maplibregl.GeolocateControl({
+  positionOptions: { enableHighAccuracy: true },
+  trackUserLocation: true,
+  showAccuracyCircle: true, // 산에서 GPS 오차가 수십 m라는 걸 눈으로 보이게
+});
+map.addControl(geo);
+
+const notice = document.getElementById('notice');
+function say(text) {
+  notice.textContent = text;
+  notice.style.display = 'block';
+  clearTimeout(say.t);
+  say.t = setTimeout(() => (notice.style.display = 'none'), 5000);
+}
+// 권한이 이미 꺼져 있으면 MapLibre는 버튼만 조용히 비활성화하고 error 이벤트를 안 보냄
+navigator.permissions?.query({ name: 'geolocation' }).then((p) => {
+  if (p.state === 'denied') say('위치 권한이 꺼져 있어 내 위치를 표시할 수 없습니다. 브라우저 설정에서 허용해 주세요.');
+});
+geo.on('error', (e) => {
+  say(e.code === 1 ? '위치 권한이 거부되었습니다. 지도는 계속 쓸 수 있어요.' : '위치를 가져오지 못했습니다.');
+});
+</script>
+</body>
+</html>
