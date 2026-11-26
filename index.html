@@ -38,7 +38,7 @@ const DEM = {
   type: 'raster-dem',
   tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
   encoding: 'terrarium', tileSize: 256, maxzoom: 15,
-  attribution: '고도: <a href="https://registry.opendata.aws/terrain-tiles/">AWS Terrain Tiles</a> (Mapzen)',
+  attribution: '고도·등고선: <a href="https://registry.opendata.aws/terrain-tiles/">AWS Terrain Tiles</a> (Mapzen)',
 };
 
 const map = new maplibregl.Map({
@@ -46,6 +46,8 @@ const map = new maplibregl.Map({
   center: START, zoom: ZOOM, pitch: PITCH, bearing: BEARING, maxPitch: 85,
   style: {
     version: 8,
+    // 등고선 높이 숫자용 글꼴. 실패해도 숫자만 안 보이고 나머지는 동작
+    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
     sources: {
       osm: {
         type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
@@ -57,11 +59,20 @@ const map = new maplibregl.Map({
       shade: DEM,
       // fetch_trails.py로 미리 받은 OSM 등산로 (Overpass를 매번 부르면 느리고 자주 실패)
       trails: { type: 'geojson', data: 'trails.geojson' },
+      // make_contours.py로 고도 타일에서 미리 계산한 10 m 간격 등고선
+      contours: { type: 'geojson', data: 'contours.geojson' },
       track: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
     },
     layers: [
       { id: 'osm', type: 'raster', source: 'osm' },
       { id: 'hillshade', type: 'hillshade', source: 'shade', paint: { 'hillshade-exaggeration': 0.4 } },
+      // 500 m 미만 산이라 100 m 계곡선은 4개뿐 → 50 m마다 굵게. 10 m 선은 멀리서 보면 뭉개지므로 줌 13 아래에선 숨김
+      { id: 'contours', type: 'line', source: 'contours',
+        paint: { 'line-color': '#7a5230',
+                 'line-width': ['case', ['==', ['%', ['get', 'ele'], 50], 0], 1.4, 0.6],
+                 'line-opacity': ['interpolate', ['linear'], ['zoom'],
+                   12.5, ['case', ['==', ['%', ['get', 'ele'], 50], 0], 0.7, 0],
+                   13.5, ['case', ['==', ['%', ['get', 'ele'], 50], 0], 0.7, 0.45]] } },
       // 어두운 테두리를 깔아야 초록 숲과 밝은 시가지 양쪽에서 다 보임
       { id: 'trails-casing', type: 'line', source: 'trails', layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: { 'line-color': '#3a1d00', 'line-opacity': 0.6,
@@ -69,6 +80,10 @@ const map = new maplibregl.Map({
       { id: 'trails', type: 'line', source: 'trails', layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: { 'line-color': '#ff7a1a',
                  'line-width': ['interpolate', ['linear'], ['zoom'], 12, 1.2, 16, 4] } },
+      { id: 'contour-labels', type: 'symbol', source: 'contours', filter: ['==', ['%', ['get', 'ele'], 50], 0],
+        layout: { 'symbol-placement': 'line', 'symbol-spacing': 300, 'text-field': ['concat', ['to-string', ['get', 'ele']], ' m'],
+                  'text-font': ['Open Sans Semibold'], 'text-size': 11 },
+        paint: { 'text-color': '#5a3a1e', 'text-halo-color': 'rgba(255, 255, 255, 0.85)', 'text-halo-width': 1.2 } },
       // 내 궤적: 주황 등산로·초록 숲과 구분되는 분홍
       { id: 'track-casing', type: 'line', source: 'track', layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 6, 16, 13] } },
