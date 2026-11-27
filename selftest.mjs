@@ -3,6 +3,7 @@ import { climb, dist } from './profile.js';
 import { sunset } from './sun.js';
 import { pointAt, bearing } from './fly.js';
 import { rows, sky } from './weather.js';
+import { trailDistance, headingDiff } from './check.js';
 import { buildGraph, nodeKey, shortestPath, toblerMinutes, toblerMin, toblerEdge, resample, progress, cumulative, snapPair } from './graph.js';
 
 const ok = (cond, msg) => { if (!cond) throw new Error(msg); };
@@ -94,9 +95,13 @@ const bad = { ...wx, precipitation_probability: wx.precipitation_probability.map
 ok(!JSON.stringify(rows(bad, kst('2026-11-27T10:30').getTime())).includes('<'), '날씨 API 값에 태그가 섞여도 숫자·기호로만');
 ok(sky(0) === '☀️ 맑음' && sky(63) === '🌧️ 비' && sky(96).includes('뇌우'), '날씨 코드');
 
+// 현장 점검: 동서 200 m 길에서 북쪽 30 m → 30 m, 방위 차 359°·1° → 2°
+near(trailDistance([[[129, 35], [129 + 200 / 91290, 35]]], { lon: 129 + 100 / 91290, lat: 35 + 30 / 111320 }), 30, 0.3, '등산로까지 거리');
+ok(headingDiff(1, 359) === 2 && headingDiff(359, 1) === -2 && headingDiff(90, 270) === -180, `방위 차 ${headingDiff(1, 359)}`);
+
 // 일몰: timeanddate.com 부산(35.18, 129.08) 2026년 11월 표와 2분 안. 저녁 9시에 물어도 그날 일몰
 for (const [d, ref] of [['2026-11-01', '17:29'], ['2026-11-15', '17:18'], ['2026-11-27', '17:12'], ['2026-11-30', '17:11']]) {
   for (const at of ['09:00', '21:00']) near(sunset(kst(`${d}T${at}`), 35.1796, 129.0756) - kst(`${d}T${ref}`), 0, 2 * 60e3, `일몰 ${d} ${at}`);
 }
 
-console.log('자체 검사 통과: climb 5 · 그래프·최단경로·하산 10 · Tobler 3 · resample 1 · 진행 위치 4 · 날아보기 3 · 날씨 5 · 일몰 8');
+console.log('자체 검사 통과: climb 5 · 그래프·최단경로·하산 10 · Tobler 3 · resample 1 · 진행 위치 4 · 날아보기 3 · 날씨 5 · 점검 2 · 일몰 8');

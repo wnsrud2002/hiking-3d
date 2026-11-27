@@ -4,10 +4,10 @@
 // - MapLibre(버전 고정 CDN): 바뀔 일이 없어 저장본 우선
 // - 지도·고도 타일, 글꼴: 한 번 본 것만 저장. OSM 정책상 미리 대량으로 받지 않음.
 //   OSM 응답 헤더가 stale-while-revalidate·stale-if-error 7일을 허용하므로 그 방식을 따름
-const APP = 'hiking-3d-app-v10'; // 앱 파일 구성·갱신 방식이 바뀌면 숫자를 올림 (v10: graph.js 분리)
+const APP = 'hiking-3d-app-v11'; // 앱 파일 구성·갱신 방식이 바뀌면 숫자를 올림 (v11: check.js 추가)
 const TILES = 'hiking-3d-tiles'; // 앱 버전이 바뀌어도 이미 본 타일은 유지
 const ML = 'https://unpkg.com/maplibre-gl@6.19.0/dist/';
-const CORE = ['./', 'track.js', 'route.js', 'graph.js', 'profile.js', 'sun.js', 'fly.js', 'weather.js', 'mountains.json', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
+const CORE = ['./', 'track.js', 'route.js', 'graph.js', 'profile.js', 'sun.js', 'fly.js', 'weather.js', 'check.js', 'mountains.json', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 const DATA = ['trails.geojson', 'contours.geojson', 'pois.geojson']; // data/<산>/ 아래. 산 하나에 약 0.7~1 MB
 const PRECACHE = [...CORE, ...DATA.map((f) => `data/seunghak/${f}`),
   ML + 'maplibre-gl.css', ML + 'maplibre-gl.mjs', ML + 'maplibre-gl-worker.mjs',

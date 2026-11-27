@@ -31,11 +31,13 @@
   #follow .warn { color: #fca5a5; }
   #follow button { border: 0; background: none; color: #e6e6e6; font-size: 16px; width: 44px; height: 44px; margin: -12px -8px -12px 0; }
   #follow .ph > span:last-child { display: flex; flex-shrink: 0; }
-  #weather, #hikes {
+  #weather, #hikes, #check {
     box-sizing: border-box; width: 100%; max-height: 45vh; overflow: auto; padding: 6px 10px; border-radius: 8px;
     background: rgba(20, 20, 20, .88); color: #e6e6e6; display: none;
   }
   #weather .ph, #hikes .ph { display: flex; justify-content: space-between; align-items: center; }
+  #check .btns { display: flex; gap: 6px; margin-top: 4px; }
+  #check .btns button { min-height: 44px; flex: 1; border: 1px solid #57534e; border-radius: 6px; background: #292524; color: #e6e6e6; font: inherit; }
   #weather button, #hikes .x, #hikes .del { border: 0; background: none; color: #e6e6e6; font-size: 16px; width: 44px; height: 44px; margin: -12px -8px -12px 0; }
   #hikes .row { display: flex; align-items: center; border-top: 1px solid #44403c; }
   #hikes .del { margin: 0; flex-shrink: 0; }
@@ -70,6 +72,7 @@
 <div id="dock">
   <div id="weather" role="region" aria-label="정상 날씨"></div>
   <div id="hikes" role="region" aria-label="지난 산행"></div>
+  <div id="check" role="region" aria-label="현장 점검"></div>
   <div id="status" aria-live="polite"></div>
   <div id="follow"></div>
   <div id="profile" role="figure" aria-label="고도 프로필"></div>
@@ -81,6 +84,7 @@ import { setupTrack } from './track.js';
 import { setupRoute } from './route.js';
 import { createProfile } from './profile.js';
 import { setupWeather } from './weather.js';
+import { setupCheck } from './check.js';
 
 // 산 목록은 데이터 스크립트(make_contours.py·fetch_trails.py)와 같은 파일. ?m=id → 마지막에 본 산 → 첫 산
 const MOUNTAINS = await (await fetch('mountains.json')).json();
@@ -276,6 +280,7 @@ const profile = createProfile({ say, demUrl: DEM.tiles[0], map, maplibregl }); /
 setupTrack(map, { maplibregl, say, pitch: PITCH, profile, mountain: M.name });
 setupRoute(map, { maplibregl, say, profile, geo, trails: DATA + 'trails.geojson', pois: DATA + 'pois.geojson' });
 setupWeather(map, { M, say });
+setupCheck(map, { profile, trails: DATA + 'trails.geojson' }); // ?check=1일 때만
 
 
 // 산에서 신호가 약해도 열리도록 (sw.js). https·localhost에서만 동작
