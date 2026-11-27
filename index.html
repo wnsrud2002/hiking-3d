@@ -15,6 +15,7 @@
   .maplibregl-ctrl-group button { width: 44px; height: 44px; }
   .maplibregl-ctrl-group button.txt { font-size: 18px; line-height: 44px; }
   .maplibregl-ctrl-group button.txt.on { color: #d6249f; }
+  .maplibregl-ctrl-group button.txt.small { font-size: 13px; font-weight: 600; }
   /* 16px 미만이면 iOS가 누를 때 화면을 확대함 */
   .maplibregl-ctrl-group select { height: 44px; border: 0; background: none; padding: 0 8px; font: 16px system-ui, sans-serif; }
   /* 기록 상태·경로 안내·고도 그래프가 함께 뜰 수 있어 겹치지 않게 아래에서부터 쌓음 */
@@ -30,12 +31,16 @@
   #follow .warn { color: #fca5a5; }
   #follow button { border: 0; background: none; color: #e6e6e6; font-size: 16px; width: 44px; height: 44px; margin: -12px -8px -12px 0; }
   #follow .ph > span:last-child { display: flex; flex-shrink: 0; }
-  #weather {
+  #weather, #hikes {
     box-sizing: border-box; width: 100%; max-height: 45vh; overflow: auto; padding: 6px 10px; border-radius: 8px;
     background: rgba(20, 20, 20, .88); color: #e6e6e6; display: none;
   }
-  #weather .ph { display: flex; justify-content: space-between; align-items: center; }
-  #weather button { border: 0; background: none; color: #e6e6e6; font-size: 16px; width: 44px; height: 44px; margin: -12px -8px -12px 0; }
+  #weather .ph, #hikes .ph { display: flex; justify-content: space-between; align-items: center; }
+  #weather button, #hikes .x, #hikes .del { border: 0; background: none; color: #e6e6e6; font-size: 16px; width: 44px; height: 44px; margin: -12px -8px -12px 0; }
+  #hikes .row { display: flex; align-items: center; border-top: 1px solid #44403c; }
+  #hikes .del { margin: 0; flex-shrink: 0; }
+  #hikes .open, #hikes .gpx { flex: 1; min-height: 44px; border: 0; background: none; color: #e6e6e6; font: inherit; text-align: left; padding: 0; }
+  #hikes .gpx { width: 100%; border-top: 1px solid #44403c; color: #a8a29e; }
   #weather table { border-collapse: collapse; font-size: 12px; margin-top: 4px; width: 100%; }
   #weather th, #weather td { padding: 2px 4px; text-align: right; white-space: nowrap; }
   #weather th:nth-child(2), #weather td:nth-child(2) { text-align: left; }
@@ -64,6 +69,7 @@
 <div id="notice" role="status" aria-live="polite"></div>
 <div id="dock">
   <div id="weather" role="region" aria-label="정상 날씨"></div>
+  <div id="hikes" role="region" aria-label="지난 산행"></div>
   <div id="status" aria-live="polite"></div>
   <div id="follow"></div>
   <div id="profile" role="figure" aria-label="고도 프로필"></div>
@@ -159,7 +165,7 @@ const map = new maplibregl.Map({
       { id: 'pois', type: 'circle', source: 'pois',
         filter: ['any', ['==', ['get', 'kind'], 'peak'], ['>=', ['zoom'], 14.5]],
         paint: { 'circle-radius': ['match', ['get', 'kind'], 'peak', 6, 4.5],
-                 'circle-color': ['match', ['get', 'kind'], 'peak', '#b91c1c', 'view', '#1d4ed8', 'water', '#0891b2', '#57534e'],
+                 'circle-color': ['match', ['get', 'kind'], 'peak', '#b91c1c', 'view', '#1d4ed8', 'water', '#0891b2', 'trailhead', '#7c2d12', '#57534e'],
                  'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.5 } },
       // 한글은 글꼴 파일 없이 기기 글꼴로 그림 (MapLibre localIdeographFontFamily 기본값)
       { id: 'poi-labels', type: 'symbol', source: 'pois',
@@ -267,8 +273,8 @@ document.querySelector('.maplibregl-ctrl-geolocate').addEventListener('click', a
 
 // ── 궤적 기록 · GPX 저장/불러오기 (track.js) ──
 const profile = createProfile({ say, demUrl: DEM.tiles[0], map, maplibregl }); // 고도 타일을 한 번 읽어 기록·선택이 같이 씀
-setupTrack(map, { maplibregl, say, pitch: PITCH, profile });
-setupRoute(map, { maplibregl, say, profile, geo, trails: DATA + 'trails.geojson' });
+setupTrack(map, { maplibregl, say, pitch: PITCH, profile, mountain: M.name });
+setupRoute(map, { maplibregl, say, profile, geo, trails: DATA + 'trails.geojson', pois: DATA + 'pois.geojson' });
 setupWeather(map, { M, say });
 
 

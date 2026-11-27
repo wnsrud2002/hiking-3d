@@ -1,14 +1,17 @@
-// 궤적 기록 · GPX 저장/불러오기. index.html에서 setupTrack(map, …)으로 붙임
+// 궤적 기록 · GPX 저장/불러오기 · 지난 산행 목록. index.html에서 setupTrack(map, …)으로 붙임
 // index.html이 300줄을 넘어 기능 단위로 분리 (GUIDELINES 3장). 고도 그래프는 profile.js
 
-import { dist } from './profile.js';
+import { dist, climb, fmtDist } from './profile.js';
 
-export function setupTrack(map, { maplibregl, say, pitch, profile }) {
+export function setupTrack(map, { maplibregl, say, pitch, profile, mountain }) {
   const KEY = 'hiking-3d:track';
   const MAX_ACC = 50; // m. 숲·골짜기에서 튀는 점 제거
   const MIN_STEP = 5; // m. 멈춰 있을 때 같은 자리에 점이 쌓이는 것 방지
   let rec = JSON.parse(localStorage.getItem(KEY) || 'null') || { recording: false, points: [] };
   let watchId = null, wakeLock = null;
+  // 지난 산행: localStorage 약 5 MB 한도라 점은 최대 500개로 솎아 [lon, lat]만 (산행 하나 약 20 KB → 200개 남짓)
+  const HIKES = 'hiking-3d:hikes', MAX_PTS = 500;
+  const hikes = () => JSON.parse(localStorage.getItem(HIKES) || '[]');
 
   const km = (pts) => pts.reduce((d, p, i) => (i ? d + dist(pts[i - 1], p) : 0), 0) / 1000;
   const drawTrack = (pts) => map.getSource('track').setData({
@@ -53,8 +56,19 @@ export function setupTrack(map, { maplibregl, say, pitch, profile }) {
     navigator.geolocation.clearWatch(watchId); watchId = null;
     wakeLock?.release(); wakeLock = null;
     rec.recording = false; save(); updateStatus();
-    if (rec.points.length) { downloadGpx(rec.points); profile.show(rec.points); }
+    if (rec.points.length) { downloadGpx(rec.points); profile.show(rec.points); saveHike(rec.points); }
     else say('기록된 점이 없습니다.');
+  }
+
+  async function saveHike(pts) {
+    if (pts.length < 2) return;
+    const every = Math.ceil(pts.length / MAX_PTS);
+    const thin = pts.filter((_, i) => i % every === 0 || i === pts.length - 1);
+    const eles = await profile.elevations(thin); // GPS 고도는 튀어서 그래프와 같은 고도 타일로
+    const hike = { t: pts[0].t, end: pts.at(-1).t, mountain, km: km(pts), ...(eles ? climb(eles) : {}),
+      pts: thin.map((p) => [+p.lon.toFixed(5), +p.lat.toFixed(5)]) };
+    try { localStorage.setItem(HIKES, JSON.stringify([hike, ...hikes()])); }
+    catch { say('저장 공간이 가득 차 산행 목록에 넣지 못했습니다. 오래된 기록을 지워 주세요 (GPX는 내려받아짐).'); }
   }
 
   function toGpx(pts) {
@@ -83,18 +97,52 @@ ${trkpts}
     const doc = new DOMParser().parseFromString(text, 'application/xml');
     const pts = [...doc.getElementsByTagName('trkpt')].map((e) => ({ lat: +e.getAttribute('lat'), lon: +e.getAttribute('lon') }));
     if (!pts.length || pts.some((p) => isNaN(p.lat) || isNaN(p.lon))) return say('GPX에서 경로(trkpt)를 찾지 못했습니다.');
+    showPts(pts);
+    say(`불러옴: ${pts.length}개 점, ${km(pts).toFixed(2)} km`);
+  }
+
+  function showPts(pts) {
     drawTrack(pts);
     profile.show(pts);
     const b = new maplibregl.LngLatBounds();
     pts.forEach((p) => b.extend([p.lon, p.lat]));
     map.fitBounds(b, { padding: 60, pitch, bearing: map.getBearing() });
-    say(`불러옴: ${pts.length}개 점, ${km(pts).toFixed(2)} km`);
+  }
+
+  // ── 지난 산행 목록 (📂) ──
+  const listEl = document.getElementById('hikes');
+  const hours = (ms) => { const m = Math.round(ms / 60e3); return m >= 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`; };
+  function renderList() {
+    const hs = hikes();
+    listEl.innerHTML = '<div class="ph"><b>지난 산행</b><button type="button" class="x" aria-label="목록 닫기" title="목록 닫기">✕</button></div>'
+      + (hs.length ? '' : '<div>아직 없습니다. ●로 기록하고 ■로 멈추면 여기에 쌓입니다.</div>')
+      + hs.map((h, i) => {
+        const day = new Date(h.t).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', weekday: 'short' });
+        const text = `${day} ${h.mountain ?? ''} · ${fmtDist(h.km * 1000)}${h.up != null ? ` · ↑ ${Math.round(h.up)} m` : ''} · ${hours(h.end - h.t)}`;
+        return `<div class="row"><button type="button" class="open" data-i="${i}">${text}</button>`
+          + `<button type="button" class="del" data-i="${i}" aria-label="${text} 기록 지우기" title="지우기">🗑</button></div>`;
+      }).join('')
+      + '<button type="button" class="gpx">GPX 파일 불러오기…</button>';
+    listEl.querySelector('.x').onclick = () => (listEl.style.display = 'none');
+    listEl.querySelector('.gpx').onclick = () => fileIn.click();
+    listEl.querySelectorAll('.open').forEach((b) => (b.onclick = () => {
+      listEl.style.display = 'none';
+      showPts(hikes()[b.dataset.i].pts.map(([lon, lat]) => ({ lon, lat })));
+    }));
+    listEl.querySelectorAll('.del').forEach((b) => (b.onclick = () => {
+      // 지우면 되돌릴 수 없어 한 번 더 확인
+      if (!confirm('이 산행 기록을 지울까요? 되돌릴 수 없습니다.')) return;
+      const hs2 = hikes(); hs2.splice(b.dataset.i, 1);
+      localStorage.setItem(HIKES, JSON.stringify(hs2));
+      renderList();
+    }));
+    listEl.style.display = 'block';
   }
 
   const statusEl = document.getElementById('status');
   const recBtn = Object.assign(document.createElement('button'), { type: 'button', className: 'txt' });
-  const loadBtn = Object.assign(document.createElement('button'), { type: 'button', className: 'txt', textContent: '📂', title: 'GPX 불러오기' });
-  loadBtn.setAttribute('aria-label', 'GPX 불러오기');
+  const loadBtn = Object.assign(document.createElement('button'), { type: 'button', className: 'txt', textContent: '📂', title: '지난 산행·GPX 불러오기' });
+  loadBtn.setAttribute('aria-label', '지난 산행·GPX 불러오기');
   // accept=".gpx"를 주면 iOS가 GPX 파일을 회색으로 막는 경우가 있어 비워 두고 내용으로 검사
   const fileIn = Object.assign(document.createElement('input'), { type: 'file', hidden: true });
 
@@ -108,7 +156,8 @@ ${trkpts}
   }
 
   recBtn.onclick = () => (rec.recording ? stop() : start(false));
-  loadBtn.onclick = () => (rec.recording ? say('기록 중에는 불러올 수 없습니다.') : fileIn.click());
+  loadBtn.onclick = () => (rec.recording ? say('기록 중에는 불러올 수 없습니다.')
+    : listEl.style.display === 'block' ? (listEl.style.display = 'none') : renderList());
   fileIn.onchange = async () => { if (fileIn.files[0]) loadGpx(await fileIn.files[0].text()); fileIn.value = ''; };
   document.body.append(fileIn);
   map.addControl({
