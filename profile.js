@@ -34,7 +34,7 @@ export function createProfile({ say, demUrl, map, maplibregl }) {
       const ctx = Object.assign(document.createElement('canvas'), { width: 256, height: 256 }).getContext('2d', { willReadFrequently: true });
       ctx.drawImage(bmp, 0, 0);
       return ctx.getImageData(0, 0, 256, 256).data;
-    })());
+    })().catch((e) => { tiles.delete(k); throw e; })); // 실패를 기억하면 신호가 돌아와도 새로고침 전까지 계속 실패함
     return tiles.get(k);
   }
   async function elevation(p) {
@@ -59,7 +59,7 @@ export function createProfile({ say, demUrl, map, maplibregl }) {
   const dotEl = document.createElement('div');
   dotEl.style.cssText = 'width:14px;height:14px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 3px rgba(0,0,0,.6)';
   const dot = map && new maplibregl.Marker({ element: dotEl });
-  let cur = null; // 지금 그래프의 { pts, dists, eles }
+  let cur = null, shown = 0; // 지금 그래프의 { pts, dists, eles }, 마지막 show 호출 번호
   const hide = () => { if (el) el.style.display = 'none'; dot?.remove(); cur = null; };
 
   // 시작점에서 d m 지점으로 그래프 세로선·읽기값·지도 점을 옮김. 그 지점(점 번호)을 돌려줌
@@ -79,7 +79,9 @@ export function createProfile({ say, demUrl, map, maplibregl }) {
   // color: 그래프 색(지도 위 선과 맞춤), note: 머리줄 뒤에 붙일 문구
   async function show(pts, { color = '#d6249f', note = '' } = {}) {
     if (!el || pts.length < 2) return;
+    const me = ++shown;
     const eles = await elevations(pts);
+    if (me !== shown) return; // 고도를 받는 사이 다른 그래프를 요청했으면 늦게 끝난 이쪽은 버림
     if (!eles) return say('고도 타일을 받지 못해 고도 프로필을 그릴 수 없습니다.');
     const dists = pts.map((p, i) => (i ? dist(pts[i - 1], p) : 0));
     for (let i = 1; i < dists.length; i++) dists[i] += dists[i - 1];

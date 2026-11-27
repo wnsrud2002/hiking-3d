@@ -3,11 +3,13 @@ import { dist } from './profile.js';
 
 const GAP = 10; // m. OSM에서 실제론 이어졌는데 살짝 떨어져 그려진 막다른 끝점(승학산 범위 4곳)을 이어 줌
 
+export const nodeKey = ([lon, lat]) => `${lon.toFixed(5)},${lat.toFixed(5)}`;
+
 // GeoJSON LineString 좌표 배열들 → 그래프. 같은 좌표(소수 5자리 ≈ 1 m)는 같은 지점 = 갈림길
 export function buildGraph(lines) {
   const id = new Map(), pts = [], adj = [];
-  const node = ([lon, lat]) => {
-    const k = `${lon.toFixed(5)},${lat.toFixed(5)}`;
+  const node = (c) => {
+    const k = nodeKey(c), [lon, lat] = c;
     if (!id.has(k)) { id.set(k, pts.length); pts.push({ lon, lat }); adj.push([]); }
     return id.get(k);
   };
@@ -36,7 +38,8 @@ export function buildGraph(lines) {
     }
     if (best >= 0) { link(i, best); joined++; }
   });
-  return { pts, adj, joined, comp: components(adj) }; // 이은 뒤 다시 셈: 경로 찾기에서 출발·도착을 같은 덩어리에 붙일 때 씀
+  // comp는 이은 뒤 다시 셈: 경로 찾기에서 출발·도착을 같은 덩어리에 붙일 때 씀. id: nodeKey → 지점 번호
+  return { pts, adj, joined, comp: components(adj), id };
 }
 
 function components(adj) {

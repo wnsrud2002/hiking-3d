@@ -3,7 +3,7 @@ import { climb, dist } from './profile.js';
 import { sunset } from './sun.js';
 import { pointAt, bearing } from './fly.js';
 import { rows, sky } from './weather.js';
-import { buildGraph, shortestPath, toblerMinutes, toblerMin, toblerEdge, resample, progress, cumulative, snapPair } from './graph.js';
+import { buildGraph, nodeKey, shortestPath, toblerMinutes, toblerMin, toblerEdge, resample, progress, cumulative, snapPair } from './graph.js';
 
 const ok = (cond, msg) => { if (!cond) throw new Error(msg); };
 const kst = (d) => new Date(`${d}+09:00`);
@@ -23,6 +23,8 @@ const g1 = buildGraph([[A, B, C], [A, D, C]]);
 const r1 = shortestPath(g1, 0, 2);
 ok(r1.path.length === 3 && r1.path[1] === 1, `직선을 골라야 함: ${r1.path}`);
 near(r1.length, dist({ lon: 129, lat: 35 }, { lon: 129.002, lat: 35 }), 0.01, '직선 길이');
+
+ok(g1.id.get(nodeKey(C)) === 2 && g1.pts[g1.id.get(nodeKey(D))].lat === 35.002, '좌표 → 지점 번호 찾기');
 
 // 갈림길: 다른 선의 중간 꼭짓점을 공유하면 연결됨
 const g2 = buildGraph([[A, B, C], [B, D]]);
@@ -88,6 +90,8 @@ const wr = rows(wx, kst('2026-11-27T10:30').getTime());
 ok(wr.length === 12 && wr[0].hour === '10', `날씨 시작 ${wr[0]?.hour} 줄 ${wr.length}`);
 ok(wr.flatMap((r) => r.warn).join() === '12시 비 70%,13시 돌풍 16 m/s,14시 뇌우: 정상·능선 피하기', `날씨 경고 ${wr.flatMap((r) => r.warn)}`);
 ok(rows(wx, kst('2026-11-30T10:00').getTime()).length === 0, '오래된 예보는 빈 목록');
+const bad = { ...wx, precipitation_probability: wx.precipitation_probability.map(() => '<img src=x onerror=alert(1)>'), weather_code: wx.weather_code.map(() => '<b>') };
+ok(!JSON.stringify(rows(bad, kst('2026-11-27T10:30').getTime())).includes('<'), '날씨 API 값에 태그가 섞여도 숫자·기호로만');
 ok(sky(0) === '☀️ 맑음' && sky(63) === '🌧️ 비' && sky(96).includes('뇌우'), '날씨 코드');
 
 // 일몰: timeanddate.com 부산(35.18, 129.08) 2026년 11월 표와 2분 안. 저녁 9시에 물어도 그날 일몰
@@ -95,4 +99,4 @@ for (const [d, ref] of [['2026-11-01', '17:29'], ['2026-11-15', '17:18'], ['2026
   for (const at of ['09:00', '21:00']) near(sunset(kst(`${d}T${at}`), 35.1796, 129.0756) - kst(`${d}T${ref}`), 0, 2 * 60e3, `일몰 ${d} ${at}`);
 }
 
-console.log('자체 검사 통과: climb 5 · 그래프·최단경로·하산 9 · Tobler 3 · resample 1 · 진행 위치 4 · 날아보기 3 · 날씨 4 · 일몰 8');
+console.log('자체 검사 통과: climb 5 · 그래프·최단경로·하산 10 · Tobler 3 · resample 1 · 진행 위치 4 · 날아보기 3 · 날씨 5 · 일몰 8');

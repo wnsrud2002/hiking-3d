@@ -5,6 +5,7 @@ const HOURS = 12;
 
 // WMO 날씨 코드 → 기호·말
 export function sky(code) {
+  if (!Number.isFinite(code)) return '—';
   if (code === 0) return '☀️ 맑음';
   if (code <= 2) return '🌤️ 구름 조금';
   if (code === 3) return '☁️ 흐림';
@@ -23,8 +24,10 @@ export function rows(hourly, now) {
   const out = [];
   if (start < 0) return out; // 저장본이 오래돼 지난 시간뿐 → 지난 예보를 지금 것처럼 보여주지 않음
   for (let i = start; i < hourly.time.length && out.length < HOURS; i++) {
-    const r = { hour: hourly.time[i].slice(11, 13), sky: sky(hourly.weather_code[i]), temp: hourly.temperature_2m[i],
-      feel: hourly.apparent_temperature[i], rain: hourly.precipitation_probability[i], wind: hourly.wind_speed_10m[i], gust: hourly.wind_gusts_10m[i] };
+    // 외부 API 값이 그대로 innerHTML에 들어가므로 숫자로만 받음 (문자열이 섞여 와도 태그로 해석되지 않게)
+    const r = { hour: String(Number(hourly.time[i].slice(11, 13))).padStart(2, '0'), sky: sky(Number(hourly.weather_code[i])),
+      temp: Number(hourly.temperature_2m[i]), feel: Number(hourly.apparent_temperature[i]), rain: Number(hourly.precipitation_probability[i]),
+      wind: Number(hourly.wind_speed_10m[i]), gust: Number(hourly.wind_gusts_10m[i]) };
     r.warn = [r.rain >= RAIN && `${r.hour}시 비 ${r.rain}%`, r.gust >= GUST && `${r.hour}시 돌풍 ${Math.round(r.gust)} m/s`,
       hourly.weather_code[i] >= 95 && `${r.hour}시 뇌우: 정상·능선 피하기`].filter(Boolean);
     out.push(r);

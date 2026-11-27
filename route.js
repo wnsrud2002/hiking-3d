@@ -2,7 +2,7 @@
 import { fmtDist } from './profile.js';
 import { sunset } from './sun.js';
 import { flyAlong } from './fly.js';
-import { buildGraph, nearestNode, snapPair, shortestPath, toblerCumulative, toblerEdge, progress, cumulative, resample } from './graph.js';
+import { buildGraph, nodeKey, nearestNode, snapPair, shortestPath, toblerCumulative, toblerEdge, progress, cumulative, resample } from './graph.js';
 
 const SNAP = 100; // m. 누른 곳에서 이보다 먼 등산로에는 붙이지 않음
 const OFF = 30; // m. 경로에서 이만큼(GPS 오차가 더 크면 그만큼) 벗어나면 알림
@@ -85,7 +85,9 @@ export function setupRoute(map, { maplibregl, say, profile, geo, trails, pois })
     follow.state = { ...r, off, offBy: r.off, arrived };
     renderFollow();
   }
-  geo?.on('geolocate', (pos) => { here = { lon: pos.coords.longitude, lat: pos.coords.latitude, accuracy: pos.coords.accuracy }; onPosition(); });
+  geo?.on('geolocate', (pos) => { here = { lon: pos.coords.longitude, lat: pos.coords.latitude, accuracy: pos.coords.accuracy, t: Date.now() }; onPosition(); });
+  // 위치 버튼을 끈 뒤에도 마지막 위치가 남아 있어, 2분 넘게 새 위치가 없으면 '지금 위치'로 쓰지 않음 (켜져 있으면 몇 초마다 들어옴)
+  const fresh = () => (here && Date.now() - here.t < 120e3 ? here : null);
 
   const lonlat = ({ lng, lat }) => ({ lon: lng, lat });
   const pin = (i, color) => markers.push(new maplibregl.Marker({ color, scale: 0.7 }).setLngLat([graph.pts[i].lon, graph.pts[i].lat]).addTo(map));
@@ -104,8 +106,7 @@ export function setupRoute(map, { maplibregl, say, profile, geo, trails, pois })
   // OSM 길 하나는 다리·계단 등 태그가 바뀌는 곳에서도 잘려 몇 m짜리 토막이 많음 →
   // 그래프를 따라 양쪽으로 갈림길(연결 3개 이상)이나 막다른 끝까지 넓혀 '갈림길 사이 구간'을 고름
   function toJunctions(coords) {
-    const key = ([lon, lat]) => graph.pts.findIndex((p) => p.lon.toFixed(5) === lon.toFixed(5) && p.lat.toFixed(5) === lat.toFixed(5));
-    const path = coords.map(key);
+    const path = coords.map((c) => graph.id.get(nodeKey(c)));
     const seen = new Set(path);
     for (let side = 0; side < 2; side++) {
       for (;;) {
@@ -178,9 +179,9 @@ export function setupRoute(map, { maplibregl, say, profile, geo, trails, pois })
     heads ??= new Set((await (await fetch(pois)).json()).features.filter((f) => f.properties.kind === 'trailhead')
       .map((f) => nearestNode(graph, { lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] }, 15)).filter((i) => i >= 0));
     if (!heads.size) return say('이 산 데이터에 들머리가 없습니다.');
-    const from = here ?? lonlat(map.getCenter());
+    const now = fresh(), from = now ?? lonlat(map.getCenter());
     const s = nearestNode(graph, from, 3 * SNAP);
-    if (s < 0) return say(`${here ? '지금 위치' : '지도 가운데'}에서 ${3 * SNAP} m 안에 등산로가 없습니다.`);
+    if (s < 0) return say(`${now ? '지금 위치' : '지도 가운데'}에서 ${3 * SNAP} m 안에 등산로가 없습니다.`);
     // 오르막·내리막을 반영해야 가까워도 봉우리를 하나 넘는 길을 피함. 고도 타일을 못 받으면 거리 기준
     nodeEles ??= await profile.elevations(graph.pts);
     const r = shortestPath(graph, s, heads, nodeEles ? toblerEdge(nodeEles) : undefined);
@@ -189,7 +190,7 @@ export function setupRoute(map, { maplibregl, say, profile, geo, trails, pois })
     clearPick(); clearRoute(); setMode(false);
     pin(s, '#16a34a'); pin(r.path.at(-1), '#b91c1c');
     await showRoute(r.path.map((k) => graph.pts[k]));
-    say(`가장 빠른 하산길 (${here ? '지금 위치' : '위치가 꺼져 있어 지도 가운데'} 기준${nodeEles ? '' : ', 고도 없이 거리로 고름'})`);
+    say(`가장 빠른 하산길 (${now ? '지금 위치' : '위치가 꺼져 있어 지도 가운데'} 기준${nodeEles ? '' : ', 고도 없이 거리로 고름'})`);
   }
   const down = Object.assign(document.createElement('button'), { type: 'button', className: 'txt small', textContent: '하산', title: '가장 빠른 하산길' });
   down.setAttribute('aria-label', '가장 빠른 하산길');
