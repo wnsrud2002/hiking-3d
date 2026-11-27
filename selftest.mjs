@@ -3,7 +3,7 @@ import { climb, dist } from './profile.js';
 import { sunset } from './sun.js';
 import { pointAt, bearing } from './fly.js';
 import { rows, sky } from './weather.js';
-import { buildGraph, shortestPath, toblerMinutes, resample, progress, cumulative, snapPair } from './route.js';
+import { buildGraph, shortestPath, toblerMinutes, resample, progress, cumulative, snapPair } from './graph.js';
 
 const ok = (cond, msg) => { if (!cond) throw new Error(msg); };
 const kst = (d) => new Date(`${d}+09:00`);
