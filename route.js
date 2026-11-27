@@ -1,5 +1,6 @@
 // 등산로 선택: 평소엔 조각 탭 → 강조·고도 그래프, 경로 모드(⇢)에선 출발·도착 탭 → 등산로를 따라 최단 경로
 import { dist } from './profile.js';
+import { sunset } from './sun.js';
 
 const GAP = 10; // m. OSM에서 실제론 이어졌는데 살짝 떨어져 그려진 막다른 끝점(승학산 범위 4곳)을 이어 줌
 const SNAP = 100; // m. 누른 곳에서 이보다 먼 등산로에는 붙이지 않음
@@ -155,18 +156,26 @@ export function setupRoute(map, { maplibregl, say, profile, geo }) {
   function renderFollow() {
     if (!follow || !followEl) return;
     const { fine, cum, mins, state } = follow;
-    let text, warn = '';
-    if (!state) {
-      text = `경로 ${fmtDist(cum.at(-1))}${mins ? ` · 약 ${fmtMin(mins.at(-1))}` : ''} · 위치 버튼(◎)을 켜면 남은 거리 안내`;
-    } else {
-      const left = cum.at(-1) - state.along;
+    let left = cum.at(-1), leftMin = mins?.at(-1), warn = [];
+    if (state) {
+      left -= state.along;
       const k = state.i; // 투영점이 든 구간 [k-1, k]의 비율로 남은 시간도 나눔
       const t = (state.along - cum[k - 1]) / ((cum[k] - cum[k - 1]) || 1);
-      const leftMin = mins && mins.at(-1) - (mins[k - 1] + t * (mins[k] - mins[k - 1]));
-      text = left < ARRIVE ? '도착' : `남은 ${fmtDist(left)}${mins ? ` · 약 ${fmtMin(leftMin)} · 도착 ${clock(new Date(Date.now() + leftMin * 60e3))}` : ''}`;
-      if (state.off) warn = `경로에서 ${Math.round(state.offBy)} m 벗어남`;
+      if (mins) leftMin = mins.at(-1) - (mins[k - 1] + t * (mins[k] - mins[k - 1]));
+      if (state.off) warn.push(`경로에서 ${Math.round(state.offBy)} m 벗어남`);
     }
-    followEl.innerHTML = `<div class="ph"><span>${text}${warn ? `<br><b class="warn">${warn}</b>` : ''}</span>`
+    let text = state?.arrived ? '도착' : `${state ? '남은' : '경로'} ${fmtDist(left)}`;
+    if (mins && !state?.arrived) {
+      // 일몰은 도착점 기준. 휴식을 뺀 보행 시간이라 실제 도착은 이보다 늦음
+      const eta = Date.now() + leftMin * 60e3, end = fine.at(-1), set = sunset(new Date(Date.now()), end.lat, end.lon);
+      text += ` · 약 ${fmtMin(leftMin)} · 도착 ${clock(new Date(eta))}${set ? ` · 일몰 ${clock(set)}` : ''}`;
+      const late = set && eta > set.getTime();
+      if (late) warn.push('일몰 뒤 도착 예상: 랜턴을 챙기거나 더 짧은 하산길을 고르세요');
+      if (late && !follow.late) { navigator.vibrate?.([200, 100, 200]); say('일몰 전에 도착하기 어렵습니다.'); }
+      follow.late = late;
+    }
+    if (!state) text += ' · 위치 버튼(◎)을 켜면 남은 거리 안내';
+    followEl.innerHTML = `<div class="ph"><span>${text}${warn.map((w) => `<br><b class="warn">${w}</b>`).join('')}</span>`
       + '<button type="button" aria-label="경로 안내 끝내기" title="경로 안내 끝내기">✕</button></div>';
     followEl.querySelector('button').onclick = () => { clearRoute(); profile.hide(); };
     followEl.style.display = 'block';
