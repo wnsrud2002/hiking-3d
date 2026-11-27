@@ -31,14 +31,20 @@
   #follow .warn { color: #fca5a5; }
   #follow button { border: 0; background: none; color: #e6e6e6; font-size: 16px; width: 44px; height: 44px; margin: -12px -8px -12px 0; }
   #follow .ph > span:last-child { display: flex; flex-shrink: 0; }
-  #weather, #hikes, #check {
+  #weather, #hikes, #check, #rescue {
     box-sizing: border-box; width: 100%; max-height: 45vh; overflow: auto; padding: 6px 10px; border-radius: 8px;
     background: rgba(20, 20, 20, .88); color: #e6e6e6; display: none;
   }
-  #weather .ph, #hikes .ph { display: flex; justify-content: space-between; align-items: center; }
-  #check .btns { display: flex; gap: 6px; margin-top: 4px; }
-  #check .btns button { min-height: 44px; flex: 1; border: 1px solid #57534e; border-radius: 6px; background: #292524; color: #e6e6e6; font: inherit; }
-  #weather button, #hikes .x, #hikes .del { border: 0; background: none; color: #e6e6e6; font-size: 16px; width: 44px; height: 44px; margin: -12px -8px -12px 0; }
+  #weather .ph, #hikes .ph, #rescue .ph { display: flex; justify-content: space-between; align-items: center; }
+  #check .btns, #rescue .btns { display: flex; gap: 6px; margin-top: 4px; }
+  #rescue { max-height: 70vh; }
+  #rescue .say { color: #a8a29e; font-size: 12px; margin-top: 2px; }
+  #rescue .big { font-size: 20px; font-weight: 700; line-height: 1.35; margin: 2px 0 6px; }
+  #rescue pre { white-space: pre-wrap; word-break: break-all; font: 12px ui-monospace, monospace; color: #d6d3d1; margin: 0; user-select: text; }
+  #rescue .btns > * { display: flex; align-items: center; justify-content: center; text-decoration: none; }
+  #rescue .call { background: #b91c1c !important; border-color: #b91c1c !important; }
+  #check .btns button, #rescue .btns > * { min-height: 44px; flex: 1; border: 1px solid #57534e; border-radius: 6px; background: #292524; color: #e6e6e6; font: inherit; }
+  #weather button, #hikes .x, #hikes .del, #rescue .x { border: 0; background: none; color: #e6e6e6; font-size: 16px; width: 44px; height: 44px; margin: -12px -8px -12px 0; }
   #hikes .row { display: flex; align-items: center; border-top: 1px solid #44403c; }
   #hikes .del { margin: 0; flex-shrink: 0; }
   #hikes .open, #hikes .gpx { flex: 1; min-height: 44px; border: 0; background: none; color: #e6e6e6; font: inherit; text-align: left; padding: 0; }
@@ -70,6 +76,7 @@
 <div id="map"></div>
 <div id="notice" role="status" aria-live="polite"></div>
 <div id="dock">
+  <div id="rescue" role="region" aria-label="구조 요청 위치"></div>
   <div id="weather" role="region" aria-label="정상 날씨"></div>
   <div id="hikes" role="region" aria-label="지난 산행"></div>
   <div id="check" role="region" aria-label="현장 점검"></div>
@@ -85,6 +92,7 @@ import { setupRoute } from './route.js';
 import { createProfile } from './profile.js';
 import { setupWeather } from './weather.js';
 import { setupCheck } from './check.js';
+import { setupRescue } from './rescue.js';
 
 // 산 목록은 데이터 스크립트(make_contours.py·fetch_trails.py)와 같은 파일. ?m=id → 마지막에 본 산 → 첫 산
 const MOUNTAINS = await (await fetch('mountains.json')).json();
@@ -280,6 +288,7 @@ const profile = createProfile({ say, demUrl: DEM.tiles[0], map, maplibregl }); /
 setupTrack(map, { maplibregl, say, pitch: PITCH, profile, mountain: M.name });
 setupRoute(map, { maplibregl, say, profile, geo, trails: DATA + 'trails.geojson', pois: DATA + 'pois.geojson' });
 setupWeather(map, { M, say });
+setupRescue(map, { say, profile, geo, M, pois: DATA + 'pois.geojson' });
 setupCheck(map, { profile, trails: DATA + 'trails.geojson' }); // ?check=1일 때만
 
 

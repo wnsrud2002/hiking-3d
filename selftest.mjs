@@ -4,6 +4,7 @@ import { sunset } from './sun.js';
 import { pointAt, bearing } from './fly.js';
 import { rows, sky } from './weather.js';
 import { trailDistance, headingDiff } from './check.js';
+import { utmk, pointNumber } from './rescue.js';
 import { buildGraph, nodeKey, shortestPath, toblerMinutes, toblerMin, toblerEdge, resample, progress, cumulative, snapPair } from './graph.js';
 
 const ok = (cond, msg) => { if (!cond) throw new Error(msg); };
@@ -99,9 +100,18 @@ ok(sky(0) === '☀️ 맑음' && sky(63) === '🌧️ 비' && sky(96).includes('
 near(trailDistance([[[129, 35], [129 + 200 / 91290, 35]]], { lon: 129 + 100 / 91290, lat: 35 + 30 / 111320 }), 30, 0.3, '등산로까지 거리');
 ok(headingDiff(1, 359) === 2 && headingDiff(359, 1) === -2 && headingDiff(90, 270) === -180, `방위 차 ${headingDiff(1, 359)}`);
 
+// 국가지점번호: UTM-K 원점(127.5°E, 38°N) = (1,000,000, 2,000,000), OSM에 등록된 실제 표지판(경남·서울) 값과 같음.
+// 승학산 '마라 3736 8107'은 OSM 점이 표지판에서 몇 m 떨어져 찍혀 마지막 자리가 1 다름 (표본 75개 중앙 차이 E 5.8·N 6.7 m = 10 m 칸 내림 규칙과 맞음)
+ok(utmk(127.5, 38).every((v, i) => Math.abs(v - [1e6, 2e6][i]) < 0.001), 'UTM-K 원점');
+for (const [lon, lat, want] of [[129.0191863, 35.6333953, '마마 3755 3853'], [129.0035132, 35.6207345, '마마 3615 3710'], [126.9765235, 37.5957646, '다사 5378 5527']]) {
+  ok(pointNumber(lon, lat) === want, `국가지점번호 ${pointNumber(lon, lat)} != ${want}`);
+}
+ok(pointNumber(129.0073696, 35.1154266).startsWith('마라 3736 810'), '승학산 이정표 근처');
+ok(pointNumber(139.7, 35.7) === null, '한국 밖은 null');
+
 // 일몰: timeanddate.com 부산(35.18, 129.08) 2026년 11월 표와 2분 안. 저녁 9시에 물어도 그날 일몰
 for (const [d, ref] of [['2026-11-01', '17:29'], ['2026-11-15', '17:18'], ['2026-11-27', '17:12'], ['2026-11-30', '17:11']]) {
   for (const at of ['09:00', '21:00']) near(sunset(kst(`${d}T${at}`), 35.1796, 129.0756) - kst(`${d}T${ref}`), 0, 2 * 60e3, `일몰 ${d} ${at}`);
 }
 
-console.log('자체 검사 통과: climb 5 · 그래프·최단경로·하산 10 · Tobler 3 · resample 1 · 진행 위치 4 · 날아보기 3 · 날씨 5 · 점검 2 · 일몰 8');
+console.log('자체 검사 통과: climb 5 · 그래프·최단경로·하산 10 · Tobler 3 · resample 1 · 진행 위치 4 · 날아보기 3 · 날씨 5 · 점검 2 · 지점번호 6 · 일몰 8');
