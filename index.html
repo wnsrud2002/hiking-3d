@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>hiking-3d</title>
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-gl.css">
+<!-- 홈 화면에 추가하면 주소창 없이 전체 화면으로 열림 (산에서 링크를 찾지 않아도 되게) -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#1f3d2b">
 <style>
   html, body, #map { margin: 0; height: 100%; }
   /* 기본 29px는 산에서 장갑 낀 손으로 누르기 어려움 → iOS 최소 터치 크기 44px */
