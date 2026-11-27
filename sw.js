@@ -4,11 +4,12 @@
 // - MapLibre(버전 고정 CDN): 바뀔 일이 없어 저장본 우선
 // - 지도·고도 타일, 글꼴: 한 번 본 것만 저장. OSM 정책상 미리 대량으로 받지 않음.
 //   OSM 응답 헤더가 stale-while-revalidate·stale-if-error 7일을 허용하므로 그 방식을 따름
-const APP = 'hiking-3d-app-v5'; // 앱 파일 구성·갱신 방식이 바뀌면 숫자를 올림 (v5: pois.geojson·sun.js 추가)
+const APP = 'hiking-3d-app-v6'; // 앱 파일 구성·갱신 방식이 바뀌면 숫자를 올림 (v6: 산별 data/<산>/ 폴더)
 const TILES = 'hiking-3d-tiles'; // 앱 버전이 바뀌어도 이미 본 타일은 유지
 const ML = 'https://unpkg.com/maplibre-gl@6.19.0/dist/';
-const APP_FILES = ['./', 'track.js', 'route.js', 'profile.js', 'sun.js', 'trails.geojson', 'contours.geojson', 'pois.geojson']; // 항상 같은 버전끼리 써야 하는 묶음
-const PRECACHE = [...APP_FILES,
+const CORE = ['./', 'track.js', 'route.js', 'profile.js', 'sun.js', 'mountains.json'];
+const DATA = ['trails.geojson', 'contours.geojson', 'pois.geojson']; // data/<산>/ 아래. 산 하나에 약 0.7~1 MB
+const PRECACHE = [...CORE, ...DATA.map((f) => `data/seunghak/${f}`),
   ML + 'maplibre-gl.css', ML + 'maplibre-gl.mjs', ML + 'maplibre-gl-worker.mjs',
   'https://demotiles.maplibre.org/font/Open%20Sans%20Semibold/0-255.pbf'];
 const TILE_HOSTS = ['tile.openstreetmap.org', 's3.amazonaws.com', 'demotiles.maplibre.org'];
@@ -35,7 +36,7 @@ async function app(e, url) {
   const cache = await caches.open(APP);
   // ?v=6 같은 캐시 우회용 쿼리와 index.html은 묶음의 같은 파일로 취급
   const key = (url.origin + url.pathname).replace(/index\.html$/, '');
-  if (e.request.mode === 'navigate') e.waitUntil(refreshApp());
+  if (e.request.mode === 'navigate') e.waitUntil(refreshApp(url));
   const cached = await cache.match(key);
   if (cached) return cached;
   const res = await fetch(e.request);
@@ -45,13 +46,19 @@ async function app(e, url) {
 
 // 파일마다 따로 갱신하면 갱신 도중 '새 index.html + 이전 track.js'처럼 버전이 섞여 기능이 빠지거나
 // 깨진다 (2026-11-26 배포본에서 실제로 발생). 전부 받아졌을 때만 한꺼번에 교체한다
-async function refreshApp() {
+// 산 데이터는 한 번이라도 연 산(저장본이 있는 산)과 지금 여는 산(?m=)만 → 안 가는 산까지 받지 않음
+async function refreshApp(url) {
   try {
-    const res = await Promise.all(APP_FILES.map((f) => fetch(f, { cache: 'no-cache' }))); // 서버에 변경 여부 확인
+    const cache = await caches.open(APP);
+    const ids = new Set((await cache.keys()).map((r) => new URL(r.url).pathname.match(/\/data\/([^/]+)\//)?.[1]).filter(Boolean));
+    if (url.searchParams.get('m')) ids.add(url.searchParams.get('m'));
+    // 목록에서 빠진 산·잘못된 ?m=이 섞이면 404로 묶음 전체가 영영 갱신되지 않으므로 지금 목록에 있는 산만
+    const known = new Set((await (await fetch('mountains.json', { cache: 'no-cache' })).json()).map((m) => m.id));
+    const files = [...CORE, ...[...ids].filter((id) => known.has(id)).flatMap((id) => DATA.map((f) => `data/${id}/${f}`))]; // 항상 같은 버전끼리 써야 하는 묶음
+    const res = await Promise.all(files.map((f) => fetch(f, { cache: 'no-cache' }))); // 서버에 변경 여부 확인
     if (!res.every((r) => r.ok)) return;
     const bodies = await Promise.all(res.map((r) => r.blob()));
-    const cache = await caches.open(APP);
-    await Promise.all(APP_FILES.map((f, i) =>
+    await Promise.all(files.map((f, i) =>
       cache.put(new URL(f, self.registration.scope).href, new Response(bodies[i], { headers: res[i].headers }))));
   } catch { /* 오프라인·일부 실패: 지금 묶음을 그대로 씀 */ }
 }

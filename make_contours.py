@@ -1,6 +1,6 @@
-"""승학산 주변 고도 타일로 등고선을 계산해 contours.geojson으로 저장한다 (표준 라이브러리만).
+"""산 주변 고도 타일로 등고선을 계산해 data/<산>/contours.geojson으로 저장한다 (표준 라이브러리만).
 
-실행: python3 make_contours.py
+실행: python3 make_contours.py [산 id]   (mountains.json의 id, 기본 seunghak)
 자체 검사: python3 make_contours.py --test
 """
 import json
@@ -11,8 +11,11 @@ import urllib.request
 import zlib
 from pathlib import Path
 
-CENTER = (128.9798, 35.1168)  # index.html의 START, fetch_trails.py와 같게 유지
-R = 0.03  # 약 ±3 km
+# 산 목록은 앱(index.html)과 같은 mountains.json에서 읽음. fetch_trails.py도 이 값을 가져다 씀
+MOUNTAINS = json.loads(Path(__file__).with_name("mountains.json").read_text())
+MOUNTAIN = next(m for m in MOUNTAINS if m["id"] == next((a for a in sys.argv[1:] if not a.startswith("-")), "seunghak"))
+CENTER, R = tuple(MOUNTAIN["center"]), MOUNTAIN["r"]  # R: 중심에서 위경도 ± 범위 (0.03 ≈ 3 km)
+OUT = Path(__file__).with_name("data") / MOUNTAIN["id"]
 Z = 14  # 원본이 30 m DEM이라 z14(약 7.8 m/px)면 충분. z15는 계산량만 4배
 STEP = 10  # m, 등고선 간격
 MIN_LEN = 100  # m. 평지·시가지의 고도 노이즈가 만드는 작은 고리 제거
@@ -184,7 +187,8 @@ def main():
             # 픽셀 값은 칸 중심 기준이라 +0.5
             coords = [[round(v, 5) for v in lonlat(gx0 + x + 0.5, gy0 + y + 0.5)] for x, y in simplify(line, TOL / m_per_px)]
             features.append({"type": "Feature", "properties": {"ele": level}, "geometry": {"type": "LineString", "coordinates": coords}})
-    out = Path(__file__).with_name("contours.geojson")
+    OUT.mkdir(parents=True, exist_ok=True)
+    out = OUT / "contours.geojson"
     out.write_text(json.dumps({"type": "FeatureCollection", "features": features}, separators=(",", ":")))
     print(f"등고선 {len(features)}개 (짧은 선 {dropped}개 제거), {out.stat().st_size:,} B 저장")
 

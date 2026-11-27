@@ -1,7 +1,7 @@
 // 자체 검사: node selftest.mjs  (브라우저 없이 계산 로직만)
 import { climb, dist } from './profile.js';
 import { sunset } from './sun.js';
-import { buildGraph, shortestPath, toblerMinutes, resample, progress, cumulative } from './route.js';
+import { buildGraph, shortestPath, toblerMinutes, resample, progress, cumulative, snapPair } from './route.js';
 
 const ok = (cond, msg) => { if (!cond) throw new Error(msg); };
 const near = (a, b, tol, msg) => ok(Math.abs(a - b) <= tol, `${msg}: ${a} != ${b}`);
@@ -30,6 +30,15 @@ const far = buildGraph([[A, B], [[129.01, 35], [129.011, 35]]]);
 ok(shortestPath(far, 0, 3) === null && far.joined === 0, '멀리 떨어지면 경로 없음');
 const gap = buildGraph([[A, B], [[129.001055, 35], [129.002, 35]]]); // B와 약 5 m
 ok(gap.joined >= 1 && shortestPath(gap, 0, 3) !== null, '5 m 끊김은 이어 줌');
+
+// snapPair: 출발 탭 바로 옆 외딴 조각(20 m)보다 50 m 떨어진 큰 길이 도착점과 이어져 있으면 그쪽에 붙임
+const main = [[129, 35], [129 + 300 / 91290, 35]], isolated = [[129, 35 + 20 / 111320], [129 + 10 / 91290, 35 + 20 / 111320]];
+const gs = buildGraph([main, isolated]);
+const tapA = { lon: 129, lat: 35 + 30 / 111320 }, tapB = { lon: 129 + 300 / 91290, lat: 35 };
+const [ss, tt] = snapPair(gs, tapA, tapB, 100);
+ok(gs.comp[ss] === gs.comp[tt] && shortestPath(gs, ss, tt) !== null, `snapPair 같은 덩어리: ${ss},${tt}`);
+const [s2] = snapPair(gs, tapA, { lon: 129 + 10 / 91290, lat: 35 + 20 / 111320 }, 100);
+ok(gs.pts[s2].lat > 35, '둘 다 외딴 조각 근처면 그대로');
 
 // Tobler: 평지 1 km ≈ 5.04 km/h → 11.9분, 경사 +20%는 훨씬 느림
 const flat = [{ lon: 129, lat: 35 }, { lon: 129 + 1 / 91.29, lat: 35 }];
@@ -60,4 +69,4 @@ for (const [d, ref] of [['2026-11-01', '17:29'], ['2026-11-15', '17:18'], ['2026
   for (const at of ['09:00', '21:00']) near(sunset(kst(`${d}T${at}`), 35.1796, 129.0756) - kst(`${d}T${ref}`), 0, 2 * 60e3, `일몰 ${d} ${at}`);
 }
 
-console.log('자체 검사 통과: climb 5 · 그래프·최단경로 5 · Tobler 2 · resample 1 · 진행 위치 4 · 일몰 8');
+console.log('자체 검사 통과: climb 5 · 그래프·최단경로 7 · Tobler 2 · resample 1 · 진행 위치 4 · 일몰 8');

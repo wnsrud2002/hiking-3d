@@ -23,13 +23,7 @@ export function buildGraph(lines) {
   for (const cs of lines) for (let i = 1; i < cs.length; i++) link(node(cs[i - 1]), node(cs[i]));
 
   // 연결 덩어리 번호 → 막다른 끝점을 GAP 안의 '다른 덩어리' 지점과 이어 줌 (같은 덩어리끼리 이으면 지름길이 생김)
-  const comp = new Int32Array(pts.length).fill(-1);
-  for (let s = 0, c = 0; s < pts.length; s++) {
-    if (comp[s] >= 0) continue;
-    const stack = [s]; comp[s] = c;
-    while (stack.length) for (const [v] of adj[stack.pop()]) if (comp[v] < 0) { comp[v] = c; stack.push(v); }
-    c++;
-  }
+  const comp = components(adj);
   const cell = (p) => `${Math.floor(p.lat * 111320 / GAP)},${Math.floor(p.lon * 111320 * Math.cos(p.lat * Math.PI / 180) / GAP)}`;
   const grid = new Map();
   pts.forEach((p, i) => { const k = cell(p); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(i); });
@@ -46,7 +40,36 @@ export function buildGraph(lines) {
     }
     if (best >= 0) { link(i, best); joined++; }
   });
-  return { pts, adj, joined };
+  return { pts, adj, joined, comp: components(adj) }; // 이은 뒤 다시 셈: 경로 찾기에서 출발·도착을 같은 덩어리에 붙일 때 씀
+}
+
+function components(adj) {
+  const comp = new Int32Array(adj.length).fill(-1);
+  for (let s = 0, c = 0; s < adj.length; s++) {
+    if (comp[s] >= 0) continue;
+    const stack = [s]; comp[s] = c;
+    while (stack.length) for (const [v] of adj[stack.pop()]) if (comp[v] < 0) { comp[v] = c; stack.push(v); }
+    c++;
+  }
+  return comp;
+}
+
+// p에서 within m 안의 가장 가까운 지점. c를 주면 그 연결 덩어리 안에서만. 없으면 -1
+export function nearestNode({ pts, comp }, p, within, c = null) {
+  let best = -1, bd = within;
+  pts.forEach((q, i) => { if (c != null && comp[i] !== c) return; const d = dist(p, q); if (d < bd) { bd = d; best = i; } });
+  return best;
+}
+
+// 누른 두 곳 → 서로 이어진 출발·도착 지점. 절·마을 안의 외딴 짧은 길에 먼저 붙으면 큰 등산로망이 바로 옆인데도
+// 경로가 없다고 나오므로(금정산 범어사: 66 m 옆 130 m짜리 조각), 상대 쪽 덩어리에서 다시 찾아 봄
+export function snapPair(graph, a, b, within) {
+  let s = nearestNode(graph, a, within), t = nearestNode(graph, b, within);
+  if (s < 0 || t < 0 || graph.comp[s] === graph.comp[t]) return [s, t];
+  const t2 = nearestNode(graph, b, within, graph.comp[s]);
+  if (t2 >= 0) return [s, t2];
+  const s2 = nearestNode(graph, a, within, graph.comp[t]);
+  return s2 >= 0 ? [s2, t] : [s, t];
 }
 
 // 다익스트라(이진 힙). 경로가 없으면 null
@@ -135,10 +158,10 @@ const fmtMin = (m) => (m >= 60 ? `${Math.floor(m / 60)}시간 ${Math.round(m % 6
 const fmtDist = (m) => (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(2)} km`);
 const clock = (d) => d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-export function setupRoute(map, { maplibregl, say, profile, geo }) {
+export function setupRoute(map, { maplibregl, say, profile, geo, trails }) {
   let lines = null, graph = null;
   const load = async () => {
-    if (!lines) lines = (await (await fetch('trails.geojson')).json()).features.map((f) => f.geometry.coordinates);
+    if (!lines) lines = (await (await fetch(trails)).json()).features.map((f) => f.geometry.coordinates);
     if (!graph) graph = buildGraph(lines);
   };
   const line = (coords) => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } });
@@ -195,12 +218,7 @@ export function setupRoute(map, { maplibregl, say, profile, geo }) {
   }
   geo?.on('geolocate', (pos) => { here = { lon: pos.coords.longitude, lat: pos.coords.latitude, accuracy: pos.coords.accuracy }; onPosition(); });
 
-  function nearest(lngLat) {
-    const p = { lon: lngLat.lng, lat: lngLat.lat };
-    let best = -1, bd = SNAP;
-    graph.pts.forEach((q, i) => { const d = dist(p, q); if (d < bd) { bd = d; best = i; } });
-    return best;
-  }
+  const lonlat = ({ lng, lat }) => ({ lon: lng, lat });
   const pin = (i, color) => markers.push(new maplibregl.Marker({ color, scale: 0.7 }).setLngLat([graph.pts[i].lon, graph.pts[i].lat]).addTo(map));
 
   // 점 → 화면에 그린 선까지의 픽셀 거리
@@ -258,14 +276,15 @@ export function setupRoute(map, { maplibregl, say, profile, geo }) {
 
   async function pickRoutePoint(e) {
     await load();
-    const i = nearest(e.lngLat);
-    if (i < 0) return say(`등산로에서 ${SNAP} m 안쪽을 눌러 주세요.`);
+    const tap = lonlat(e.lngLat);
+    if (nearestNode(graph, tap, SNAP) < 0) return say(`등산로에서 ${SNAP} m 안쪽을 눌러 주세요.`);
     if (start == null) {
-      clearRoute(); start = i; pin(i, '#16a34a');
+      clearRoute(); start = tap; pin(nearestNode(graph, tap, SNAP), '#16a34a');
       return say('도착점을 누르세요.');
     }
-    pin(i, '#b91c1c');
-    const r = shortestPath(graph, start, i);
+    const [s, t] = snapPair(graph, start, tap, SNAP);
+    clearRoute(); pin(s, '#16a34a'); pin(t, '#b91c1c');
+    const r = shortestPath(graph, s, t);
     start = null; setMode(false);
     if (!r) return say('두 지점을 잇는 등산로가 없습니다. 같은 산줄기 안에서 골라 주세요.');
     const pts = r.path.map((k) => graph.pts[k]);

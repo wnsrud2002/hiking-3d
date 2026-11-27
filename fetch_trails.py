@@ -1,7 +1,7 @@
-"""승학산 주변 등산로를 OSM(Overpass)에서 받아 trails.geojson으로 저장한다.
+"""산 주변 등산로·정상 등을 OSM(Overpass)에서 받아 data/<산>/trails.geojson, pois.geojson으로 저장한다.
 
 브라우저에서 매번 Overpass를 부르면 5~35초 걸리거나 502가 나서, 미리 받아 파일로 둔다.
-실행: python3 fetch_trails.py
+실행: python3 fetch_trails.py [산 id]   (mountains.json의 id, 기본 seunghak)
 """
 import json
 import math
@@ -9,9 +9,8 @@ import sys
 from collections import defaultdict
 import urllib.parse
 import urllib.request
-from pathlib import Path
 
-from make_contours import CENTER, R, URL, Z, decode_terrarium, tile_xy  # 범위·고도 타일 처리를 한곳에서 관리
+from make_contours import CENTER, OUT, R, URL, Z, decode_terrarium, tile_xy  # 범위·고도 타일 처리를 한곳에서 관리
 
 S, W, N, E = CENTER[1] - R, CENTER[0] - R, CENTER[1] + R, CENTER[0] + R
 # footway의 절반 이상이 시내 보도·횡단보도, 감천문화마을 등 마을 골목은 path=alley로 붙어 있어 제외
@@ -117,7 +116,8 @@ def to_pois(elements, ways):
 
 
 def save(name, gj):
-    out = Path(__file__).with_name(name)
+    OUT.mkdir(parents=True, exist_ok=True)
+    out = OUT / name
     out.write_text(json.dumps(gj, separators=(",", ":"), ensure_ascii=False))
     return out.stat().st_size
 

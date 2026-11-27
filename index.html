@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>hiking-3d · 승학산</title>
+<title>hiking-3d</title>
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-gl.css">
 <style>
   html, body, #map { margin: 0; height: 100%; }
@@ -11,6 +11,8 @@
   .maplibregl-ctrl-group button { width: 44px; height: 44px; }
   .maplibregl-ctrl-group button.txt { font-size: 18px; line-height: 44px; }
   .maplibregl-ctrl-group button.txt.on { color: #d6249f; }
+  /* 16px 미만이면 iOS가 누를 때 화면을 확대함 */
+  .maplibregl-ctrl-group select { height: 44px; border: 0; background: none; padding: 0 8px; font: 16px system-ui, sans-serif; }
   /* 기록 상태·경로 안내·고도 그래프가 함께 뜰 수 있어 겹치지 않게 아래에서부터 쌓음 */
   #dock {
     position: absolute; left: 10px; bottom: 56px; width: min(420px, calc(100vw - 80px));
@@ -53,9 +55,16 @@ import { setupTrack } from './track.js';
 import { setupRoute } from './route.js';
 import { createProfile } from './profile.js';
 
-const START = [128.9798, 35.1168]; // 승학산 정상 (OSM, 497 m)
+// 산 목록은 데이터 스크립트(make_contours.py·fetch_trails.py)와 같은 파일. ?m=id → 마지막에 본 산 → 첫 산
+const MOUNTAINS = await (await fetch('mountains.json')).json();
+const M = MOUNTAINS.find((m) => m.id === (new URLSearchParams(location.search).get('m') ?? localStorage.getItem('hiking-3d:m')))
+  ?? MOUNTAINS[0];
+localStorage.setItem('hiking-3d:m', M.id);
+document.title = `hiking-3d · ${M.name}`;
+const DATA = `data/${M.id}/`;
+const START = M.summit;
 const ZOOM = 14, PITCH = 60, BEARING = -20;
-const EXAGGERATION = 1.5; // 30 m DEM + 500 m 미만 산이라 1.0이면 밋밋함
+const EXAGGERATION = 1.5; // 30 m DEM + 1000 m 미만 산이라 1.0이면 밋밋함
 
 const DEM = {
   type: 'raster-dem',
@@ -63,6 +72,8 @@ const DEM = {
   encoding: 'terrarium', tileSize: 256, maxzoom: 15,
   attribution: '고도·등고선: <a href="https://registry.opendata.aws/terrain-tiles/">AWS Terrain Tiles</a> (Mapzen)',
 };
+
+const MAJOR = ['==', ['%', ['get', 'ele'], M.index], 0];
 
 const map = new maplibregl.Map({
   container: 'map',
@@ -82,11 +93,11 @@ const map = new maplibregl.Map({
       shade: DEM,
       // fetch_trails.py로 미리 받은 OSM 등산로 (Overpass를 매번 부르면 느리고 자주 실패)
       // generateId: 누른 조각의 번호(= 파일 속 순서)로 원본 전체 선을 찾기 위해 (route.js)
-      trails: { type: 'geojson', data: 'trails.geojson', generateId: true },
+      trails: { type: 'geojson', data: DATA + 'trails.geojson', generateId: true },
       // make_contours.py로 고도 타일에서 미리 계산한 10 m 간격 등고선
-      contours: { type: 'geojson', data: 'contours.geojson' },
+      contours: { type: 'geojson', data: DATA + 'contours.geojson' },
       // fetch_trails.py가 함께 받은 정상·전망대·약수터·쉼터 (등산로 30 m 안의 것만)
-      pois: { type: 'geojson', data: 'pois.geojson' },
+      pois: { type: 'geojson', data: DATA + 'pois.geojson' },
       track: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       pick: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       route: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
@@ -94,13 +105,12 @@ const map = new maplibregl.Map({
     layers: [
       { id: 'osm', type: 'raster', source: 'osm' },
       { id: 'hillshade', type: 'hillshade', source: 'shade', paint: { 'hillshade-exaggeration': 0.4 } },
-      // 500 m 미만 산이라 100 m 계곡선은 4개뿐 → 50 m마다 굵게. 10 m 선은 멀리서 보면 뭉개지므로 줌 13 아래에선 숨김
+      // 굵은 선 간격(index)은 산마다: 500 m대 산은 100 m마다면 4~5개뿐이라 50 m, 금정산(801 m)은 100 m.
+      // 10 m 선은 멀리서 보면 뭉개지므로 줌 13 아래에선 숨김
       { id: 'contours', type: 'line', source: 'contours',
         paint: { 'line-color': '#7a5230',
-                 'line-width': ['case', ['==', ['%', ['get', 'ele'], 50], 0], 1.4, 0.6],
-                 'line-opacity': ['interpolate', ['linear'], ['zoom'],
-                   12.5, ['case', ['==', ['%', ['get', 'ele'], 50], 0], 0.7, 0],
-                   13.5, ['case', ['==', ['%', ['get', 'ele'], 50], 0], 0.7, 0.45]] } },
+                 'line-width': ['case', MAJOR, 1.4, 0.6],
+                 'line-opacity': ['interpolate', ['linear'], ['zoom'], 12.5, ['case', MAJOR, 0.7, 0], 13.5, ['case', MAJOR, 0.7, 0.45]] } },
       // 어두운 테두리를 깔아야 초록 숲과 밝은 시가지 양쪽에서 다 보임
       { id: 'trails-casing', type: 'line', source: 'trails', layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: { 'line-color': '#3a1d00', 'line-opacity': 0.6,
@@ -108,7 +118,7 @@ const map = new maplibregl.Map({
       { id: 'trails', type: 'line', source: 'trails', layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: { 'line-color': '#ff7a1a',
                  'line-width': ['interpolate', ['linear'], ['zoom'], 12, 1.2, 16, 4] } },
-      { id: 'contour-labels', type: 'symbol', source: 'contours', filter: ['==', ['%', ['get', 'ele'], 50], 0],
+      { id: 'contour-labels', type: 'symbol', source: 'contours', filter: MAJOR,
         layout: { 'symbol-placement': 'line', 'symbol-spacing': 300, 'text-field': ['concat', ['to-string', ['get', 'ele']], ' m'],
                   'text-font': ['Open Sans Semibold'], 'text-size': 11 },
         paint: { 'text-color': '#5a3a1e', 'text-halo-color': 'rgba(255, 255, 255, 0.85)', 'text-halo-width': 1.2 } },
@@ -147,6 +157,20 @@ window.map = map;
 
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }));
 map.addControl(new maplibregl.ScaleControl());
+
+// 산 고르기: 지도·데이터·경로 그래프를 통째로 바꿔야 해서 새로 불러옴 (기록 중이면 localStorage에서 이어짐)
+const picker = document.createElement('select');
+picker.setAttribute('aria-label', '산 고르기');
+picker.append(...MOUNTAINS.map((m) => new Option(m.name, m.id, false, m === M)));
+picker.onchange = () => { location.search = `?m=${picker.value}`; };
+map.addControl({
+  onAdd() {
+    const div = Object.assign(document.createElement('div'), { className: 'maplibregl-ctrl maplibregl-ctrl-group' });
+    div.append(picker);
+    return div;
+  },
+  onRemove() {},
+}, 'top-left');
 
 const geo = new maplibregl.GeolocateControl({
   positionOptions: { enableHighAccuracy: true },
@@ -223,7 +247,7 @@ document.querySelector('.maplibregl-ctrl-geolocate').addEventListener('click', a
 // ── 궤적 기록 · GPX 저장/불러오기 (track.js) ──
 const profile = createProfile({ say, demUrl: DEM.tiles[0] }); // 고도 타일을 한 번 읽어 기록·선택이 같이 씀
 setupTrack(map, { maplibregl, say, pitch: PITCH, profile });
-setupRoute(map, { maplibregl, say, profile, geo });
+setupRoute(map, { maplibregl, say, profile, geo, trails: DATA + 'trails.geojson' });
 
 
 // 산에서 신호가 약해도 열리도록 (sw.js). https·localhost에서만 동작
