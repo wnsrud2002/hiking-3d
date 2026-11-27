@@ -36,7 +36,9 @@
   #profile .ph { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   /* 터치 영역은 44px을 지키되 음수 여백으로 머리줄 높이는 그대로 */
   #profile button { border: 0; background: none; font-size: 16px; width: 44px; height: 44px; margin: -12px -8px -12px 0; color: #444; }
-  #profile svg { display: block; width: 100%; height: 90px; margin-top: 4px; }
+  /* touch-action: none — 그래프를 끄는 동안 지도·페이지가 같이 움직이지 않게 */
+  #profile svg { display: block; width: 100%; height: 90px; margin-top: 4px; touch-action: none; cursor: crosshair; }
+  #profile .pv { color: #444; font-size: 12px; margin-top: 2px; }
   #notice {
     position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
     padding: 8px 14px; border-radius: 6px; background: rgba(20, 20, 20, .85);
@@ -249,7 +251,7 @@ document.querySelector('.maplibregl-ctrl-geolocate').addEventListener('click', a
 });
 
 // ── 궤적 기록 · GPX 저장/불러오기 (track.js) ──
-const profile = createProfile({ say, demUrl: DEM.tiles[0] }); // 고도 타일을 한 번 읽어 기록·선택이 같이 씀
+const profile = createProfile({ say, demUrl: DEM.tiles[0], map, maplibregl }); // 고도 타일을 한 번 읽어 기록·선택이 같이 씀
 setupTrack(map, { maplibregl, say, pitch: PITCH, profile });
 setupRoute(map, { maplibregl, say, profile, geo, trails: DATA + 'trails.geojson' });
 

@@ -1,5 +1,5 @@
 // 등산로 선택: 평소엔 조각 탭 → 강조·고도 그래프, 경로 모드(⇢)에선 출발·도착 탭 → 등산로를 따라 최단 경로
-import { dist } from './profile.js';
+import { dist, fmtDist } from './profile.js';
 import { sunset } from './sun.js';
 
 const GAP = 10; // m. OSM에서 실제론 이어졌는데 살짝 떨어져 그려진 막다른 끝점(승학산 범위 4곳)을 이어 줌
@@ -155,7 +155,6 @@ export function resample(pts, step = 20) {
 const KIND = { peak: '봉우리', view: '전망대', water: '약수터', shelter: '쉼터', toilets: '화장실', guide: '이정표' };
 
 const fmtMin = (m) => (m >= 60 ? `${Math.floor(m / 60)}시간 ${Math.round(m % 60)}분` : `${Math.round(m)}분`);
-const fmtDist = (m) => (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(2)} km`);
 const clock = (d) => d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
 
 export function setupRoute(map, { maplibregl, say, profile, geo, trails }) {

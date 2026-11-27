@@ -18,7 +18,9 @@ export function climb(eles, step = 3) {
   return { up: up + Math.max(rest, 0), down: down + Math.max(-rest, 0) };
 }
 
-export function createProfile({ say, demUrl }) {
+export const fmtDist = (m) => (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(2)} km`);
+
+export function createProfile({ say, demUrl, map, maplibregl }) {
   // 폰 GPS 고도는 ±10~20 m씩 튀어서, 지도와 같은 고도 타일(z14, 약 7.8 m/px)에서 높이를 읽음.
   // 타일은 sw.js가 저장하므로 본 적 있는 지역이면 오프라인에서도 그려짐
   const Z = 14, tiles = new Map();
@@ -53,7 +55,26 @@ export function createProfile({ say, demUrl }) {
 
   // #profile이 없는 이전 index.html과 섞여 불려도(갱신 도중) 다른 기능은 멈추지 않게
   const el = document.getElementById('profile');
-  const hide = () => { if (el) el.style.display = 'none'; };
+  // 그래프 위치 ↔ 지도 점: 그래프를 누르거나 끌면 그 지점을 지도에 찍음 (fly.js도 이걸로 진행 위치를 표시)
+  const dotEl = document.createElement('div');
+  dotEl.style.cssText = 'width:14px;height:14px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 3px rgba(0,0,0,.6)';
+  const dot = map && new maplibregl.Marker({ element: dotEl });
+  let cur = null; // 지금 그래프의 { pts, dists, eles }
+  const hide = () => { if (el) el.style.display = 'none'; dot?.remove(); cur = null; };
+
+  // 시작점에서 d m 지점으로 그래프 세로선·읽기값·지도 점을 옮김. 그 지점(점 번호)을 돌려줌
+  function cursor(d) {
+    if (!cur) return -1;
+    const { pts, dists, eles } = cur;
+    let lo = 0, hi = dists.length - 1; // dists는 오름차순 → 이분 탐색 후 더 가까운 쪽
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (dists[m] < d) lo = m; else hi = m; }
+    const i = d - dists[lo] < dists[hi] - d ? lo : hi;
+    const x = (dists[i] / (dists.at(-1) || 1) * 400).toFixed(1);
+    el.querySelector('.cur').setAttribute('x1', x); el.querySelector('.cur').setAttribute('x2', x);
+    el.querySelector('.pv').textContent = `${fmtDist(dists[i])} 지점 · 고도 ${Math.round(eles[i])} m`;
+    dot?.setLngLat([pts[i].lon, pts[i].lat]).addTo(map);
+    return i;
+  }
 
   // color: 그래프 색(지도 위 선과 맞춤), note: 머리줄 뒤에 붙일 문구
   async function show(pts, { color = '#d6249f', note = '' } = {}) {
@@ -67,15 +88,28 @@ export function createProfile({ say, demUrl }) {
     const xy = eles.map((_, i) => i).filter((i) => i % every === 0 || i === eles.length - 1)
       .map((i) => `${(dists[i] / total * 400).toFixed(1)},${(95 - (eles[i] - lo) / span * 85).toFixed(1)}`);
     const { up, down } = climb(eles);
-    const summary = `${total < 1000 ? `${Math.round(total)} m` : `${(total / 1000).toFixed(2)} km`} · ↑ ${Math.round(up)} m · ↓ ${Math.round(down)} m · 최고 ${Math.round(hi)} m${note}`;
+    const summary = `${fmtDist(total)} · ↑ ${Math.round(up)} m · ↓ ${Math.round(down)} m · 최고 ${Math.round(hi)} m${note}`;
     el.innerHTML = `<div class="ph"><span>${summary}</span><button type="button" aria-label="고도 프로필 닫기">✕</button></div>`
       + `<svg viewBox="0 0 400 100" preserveAspectRatio="none" aria-hidden="true">`
       + `<polygon points="0,100 ${xy.join(' ')} 400,100" fill="${color}" fill-opacity=".18"/>`
-      + `<polyline points="${xy.join(' ')}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+      + `<polyline points="${xy.join(' ')}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`
+      + `<line class="cur" x1="-9" x2="-9" y1="0" y2="100" stroke="#222" stroke-width="1" vector-effect="non-scaling-stroke"/></svg>`
+      + '<div class="pv">그래프를 누르거나 끌면 지도에 그 지점이 표시됩니다</div>';
     el.setAttribute('aria-label', `고도 프로필: ${summary}, 최저 ${Math.round(lo)} m`);
     el.querySelector('button').onclick = hide;
+    cur = { pts, dists, eles };
+    dot?.remove();
+    dotEl.style.background = color;
+    const svg = el.querySelector('svg');
+    const onPointer = (e) => {
+      if (e.pointerType !== 'mouse' && !e.buttons && e.type === 'pointermove') return;
+      const r = svg.getBoundingClientRect();
+      cursor(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * total);
+    };
+    svg.onpointerdown = (e) => { svg.setPointerCapture(e.pointerId); onPointer(e); };
+    svg.onpointermove = onPointer;
     el.style.display = 'block';
   }
 
-  return { show, hide, elevations };
+  return { show, hide, elevations, cursor };
 }
