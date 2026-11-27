@@ -105,6 +105,8 @@ export function resample(pts, step = 20) {
   return out;
 }
 
+const KIND = { peak: '봉우리', view: '전망대', water: '약수터', shelter: '쉼터', toilets: '화장실', guide: '이정표' };
+
 const fmtMin = (m) => (m >= 60 ? `${Math.floor(m / 60)}시간 ${Math.round(m % 60)}분` : `${Math.round(m)}분`);
 
 export function setupRoute(map, { maplibregl, say, profile }) {
@@ -154,10 +156,22 @@ export function setupRoute(map, { maplibregl, say, profile }) {
     return path.map((i) => graph.pts[i]);
   }
 
+  // 선·점이 작아 손가락으로 정확히 누르기 어려워 주변 ±12 px 안에서 찾음
+  const near = ({ x, y }, layer) => map.queryRenderedFeatures([[x - 12, y - 12], [x + 12, y + 12]], { layers: [layer] });
+
+  // 정상·쉼터 등 점을 눌렀으면 이름·종류·고도 안내 (조각 선택보다 우선)
+  function pickPoi(e) {
+    const found = near(e.point, 'pois');
+    if (!found.length) return false;
+    const d = (f) => map.project(f.geometry.coordinates).dist(e.point);
+    const { name, kind, ele } = found.reduce((a, b) => (d(b) < d(a) ? b : a)).properties;
+    say(`${name ? `${name} · ` : ''}${KIND[kind]} · 고도 ${ele} m`);
+    return true;
+  }
+
   async function pickSegment(e) {
-    // 선이 가늘어 손가락으로 정확히 누르기 어려워 주변 ±12 px 안에서 찾고, 그중 누른 곳에 가장 가까운 선을 고름
-    const { x, y } = e.point;
-    const found = map.queryRenderedFeatures([[x - 12, y - 12], [x + 12, y + 12]], { layers: ['trails'] });
+    // 그중 누른 곳에 가장 가까운 선을 고름
+    const found = near(e.point, 'trails');
     if (!found.length) return clear();
     await load();
     // 타일에 잘린 조각이 아니라 원본 전체 선으로 비교 (generateId = 파일 속 순서)
@@ -211,5 +225,6 @@ export function setupRoute(map, { maplibregl, say, profile }) {
     },
     onRemove() {},
   });
-  map.on('click', (e) => (mode ? pickRoutePoint(e) : pickSegment(e)));
+  // 경로 모드에선 정상을 눌러도 출발·도착점으로 씀
+  map.on('click', (e) => (mode ? pickRoutePoint(e) : pickPoi(e) || pickSegment(e)));
 }

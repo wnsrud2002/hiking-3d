@@ -23,6 +23,13 @@ BUILDINGS = f'[out:json][timeout:90];way["building"]({S},{W},{N},{E});out center
 # 태그가 그냥 path인 마을 골목은 건물 사이로 지나감. 길의 80% 이상이 건물 중심 25 m 안이면 제외.
 # 실측 분포가 0~10%(233개)와 90~100%(19개)로 갈리고 80~90%는 0개라 경계가 뚜렷함
 BUILDING_R, BUILDING_FRAC = 25, 0.8
+BOX = f"({S},{W},{N},{E})"
+POIS = (f'[out:json][timeout:60];(node["natural"~"^(peak|spring)$"]{BOX};node["tourism"="viewpoint"]{BOX};'
+        f'nwr["amenity"~"^(shelter|drinking_water|toilets)$"]{BOX};node["information"="guidepost"]{BOX};);out center tags;')
+KINDS = [("natural", "peak", "peak"), ("tourism", "viewpoint", "view"), ("natural", "spring", "water"),
+         ("amenity", "drinking_water", "water"), ("amenity", "shelter", "shelter"), ("amenity", "toilets", "toilets"),
+         ("information", "guidepost", "guide")]  # 위에 있을수록 우선 (전망대이면서 바위인 곳 → 전망대)
+POI_R = 30  # m
 MX, MY = 111320 * math.cos(math.radians(CENTER[1])), 111320  # 위경도 1°당 m (범위가 좁아 평면 근사)
 # 메인 서버가 느리거나(35 s) 502를 내는 일이 잦아 미러를 먼저 시도
 SERVERS = ["https://maps.mail.ru/osm/tools/overpass/api/interpreter",
@@ -54,26 +61,65 @@ def elevation(lon, lat):
     return v if v > -100 else 0  # 고도 타일의 -1000 m대 결측 픽셀
 
 
-def building_fraction(buildings):
-    """건물 중심점들 → (길 → 10 m 간격 표본 중 건물 BUILDING_R 안에 든 비율) 함수."""
-    cell = lambda x, y: (int(x * MX / BUILDING_R), int(y * MY / BUILDING_R))
+def near_any(points, r):
+    """점들 → (x, y)가 그중 하나에서 r m 안인지 답하는 함수. r 크기 격자로 주변 9칸만 봄."""
+    cell = lambda x, y: (int(x * MX / r), int(y * MY / r))
     grid = defaultdict(list)
-    for x, y in buildings:
+    for x, y in points:
         grid[cell(x, y)].append((x, y))
 
     def near(x, y):
         cx, cy = cell(x, y)
-        return any(math.hypot((bx - x) * MX, (by - y) * MY) < BUILDING_R
+        return any(math.hypot((bx - x) * MX, (by - y) * MY) < r
                    for dx in (-1, 0, 1) for dy in (-1, 0, 1) for bx, by in grid.get((cx + dx, cy + dy), ()))
+    return near
+
+
+def samples(way):
+    """길의 10 m 간격 점. 꼭짓점만 보면 긴 직선 구간이 빠짐."""
+    pts = [(p["lon"], p["lat"]) for p in way["geometry"]]
+    out = [pts[0]]
+    for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+        n = max(1, int(math.hypot((x2 - x1) * MX, (y2 - y1) * MY) // 10))
+        out += [(x1 + (x2 - x1) * k / n, y1 + (y2 - y1) * k / n) for k in range(1, n + 1)]
+    return out
+
+
+def building_fraction(buildings):
+    """건물 중심점들 → (길 → 표본 중 건물 BUILDING_R 안에 든 비율) 함수."""
+    near = near_any(buildings, BUILDING_R)
 
     def fraction(way):
-        pts = [(p["lon"], p["lat"]) for p in way["geometry"]]
-        samples = [pts[0]]  # 꼭짓점만 보면 긴 직선 구간이 표본에서 빠지므로 10 m 간격으로 채움
-        for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
-            n = max(1, int(math.hypot((x2 - x1) * MX, (y2 - y1) * MY) // 10))
-            samples += [(x1 + (x2 - x1) * k / n, y1 + (y2 - y1) * k / n) for k in range(1, n + 1)]
-        return sum(near(x, y) for x, y in samples) / len(samples)
+        pts = samples(way)
+        return sum(near(x, y) for x, y in pts) / len(pts)
     return fraction
+
+
+def to_pois(elements, ways):
+    """정상·전망대 등 → GeoJSON 점. 봉우리 말고는 등산로 POI_R 안의 것만 (아파트 약수터·마을 화장실 제외)."""
+    near = near_any([p for w in ways for p in samples(w)], POI_R)
+    feats = []
+    for e in elements:
+        t, c = e["tags"], e.get("center", e)
+        kind = next((k for key, val, k in KINDS if t.get(key) == val), None)
+        if not kind or kind != "peak" and not near(c["lon"], c["lat"]):
+            continue
+        try:
+            ele = float(t["ele"])
+        except (KeyError, ValueError):  # 태그가 없거나 "497m"처럼 숫자가 아님
+            ele = elevation(c["lon"], c["lat"])
+        props = {"kind": kind, "ele": round(ele)}
+        if t.get("name"):
+            props["name"] = t["name"]
+        feats.append({"type": "Feature", "properties": props,
+                      "geometry": {"type": "Point", "coordinates": [round(c["lon"], 5), round(c["lat"], 5)]}})
+    return {"type": "FeatureCollection", "features": feats}
+
+
+def save(name, gj):
+    out = Path(__file__).with_name(name)
+    out.write_text(json.dumps(gj, separators=(",", ":"), ensure_ascii=False))
+    return out.stat().st_size
 
 
 def to_geojson(ways):
@@ -93,8 +139,11 @@ if __name__ == "__main__":
     ways = [w for w in high if fraction(w) < BUILDING_FRAC]
     gj = to_geojson(ways)
     assert gj["features"], "등산로 0개: 범위나 쿼리를 확인"
-    out = Path(__file__).with_name("trails.geojson")
-    out.write_text(json.dumps(gj, separators=(",", ":")))
+    size = save("trails.geojson", gj)
     print(f"받은 길 {len(osm['elements'])}개 → 저지대(최고 {MIN_TOP} m 미만) {len(osm['elements']) - len(high)}개 제외 → "
           f"건물 사이(건물 {len(buildings)}개 기준) {len(high) - len(ways)}개 제외 → "
-          f"{len(ways)}개, {out.stat().st_size:,} B 저장 (OSM 기준 {osm['osm3s']['timestamp_osm_base']})")
+          f"{len(ways)}개, {size:,} B 저장 (OSM 기준 {osm['osm3s']['timestamp_osm_base']})")
+    poi = fetch(POIS)["elements"]
+    pois = to_pois(poi, ways)
+    print(f"지점 {len(poi)}개 → 등산로 {POI_R} m 밖 {len(poi) - len(pois['features'])}개 제외 → "
+          f"{len(pois['features'])}개, {save('pois.geojson', pois):,} B 저장")

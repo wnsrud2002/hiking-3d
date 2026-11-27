@@ -75,6 +75,8 @@ const map = new maplibregl.Map({
       trails: { type: 'geojson', data: 'trails.geojson', generateId: true },
       // make_contours.py로 고도 타일에서 미리 계산한 10 m 간격 등고선
       contours: { type: 'geojson', data: 'contours.geojson' },
+      // fetch_trails.py가 함께 받은 정상·전망대·약수터·쉼터 (등산로 30 m 안의 것만)
+      pois: { type: 'geojson', data: 'pois.geojson' },
       track: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       pick: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       route: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
@@ -112,6 +114,21 @@ const map = new maplibregl.Map({
         paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 6, 16, 13] } },
       { id: 'track', type: 'line', source: 'track', layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: { 'line-color': '#d6249f', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 3.5, 16, 8] } },
+      // 쉼터 32개·이정표 10개는 이름이 대부분 없거나 '정자'라 점만 찍고, 누르면 안내 (route.js)
+      { id: 'pois', type: 'circle', source: 'pois',
+        filter: ['any', ['==', ['get', 'kind'], 'peak'], ['>=', ['zoom'], 14.5]],
+        paint: { 'circle-radius': ['match', ['get', 'kind'], 'peak', 6, 4.5],
+                 'circle-color': ['match', ['get', 'kind'], 'peak', '#b91c1c', 'view', '#1d4ed8', 'water', '#0891b2', '#57534e'],
+                 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.5 } },
+      // 한글은 글꼴 파일 없이 기기 글꼴로 그림 (MapLibre localIdeographFontFamily 기본값)
+      { id: 'poi-labels', type: 'symbol', source: 'pois',
+        filter: ['any', ['==', ['get', 'kind'], 'peak'], ['all', ['has', 'name'], ['in', ['get', 'kind'], ['literal', ['view', 'water']]]]],
+        layout: { 'text-field': ['case', ['==', ['get', 'kind'], 'peak'],
+                    ['concat', ['coalesce', ['get', 'name'], '봉우리'], '\n', ['to-string', ['get', 'ele']], ' m'], ['get', 'name']],
+                  'text-font': ['Open Sans Semibold'], 'text-size': ['match', ['get', 'kind'], 'peak', 13, 11],
+                  'text-anchor': 'top', 'text-offset': [0, 0.6],
+                  'symbol-sort-key': ['match', ['get', 'kind'], 'peak', ['-', 0, ['get', 'ele']], 0] }, // 겹치면 높은 봉우리 먼저
+        paint: { 'text-color': '#1c1917', 'text-halo-color': 'rgba(255, 255, 255, 0.9)', 'text-halo-width': 1.5 } },
     ],
     terrain: { source: 'terrain', exaggeration: EXAGGERATION },
   },
