@@ -68,8 +68,10 @@ export function snapPair(graph, a, b, within) {
   return s2 >= 0 ? [s2, t] : [s, t];
 }
 
-// 다익스트라(이진 힙). 경로가 없으면 null
-export function shortestPath({ pts, adj }, s, t) {
+// 다익스트라(이진 힙). t: 도착 지점 하나 또는 Set(그중 가장 가까운 곳). cost(u, v, 거리): 간선 비용(기본 거리).
+// 반환 { path, length: 비용 합 } — 경로가 없으면 null
+export function shortestPath({ pts, adj }, s, t, cost = (u, v, w) => w) {
+  const isT = t instanceof Set ? (u) => t.has(u) : (u) => u === t;
   const d = new Float64Array(pts.length).fill(Infinity), prev = new Int32Array(pts.length).fill(-1), heap = [];
   const push = (x) => {
     heap.push(x);
@@ -95,27 +97,32 @@ export function shortestPath({ pts, adj }, s, t) {
     return top;
   };
   d[s] = 0; push([0, s]);
+  let end = -1;
   while (heap.length) {
     const [du, u] = pop();
-    if (u === t) break;
     if (du > d[u]) continue; // 이미 더 짧게 확정된 지점의 낡은 항목
-    for (const [v, w] of adj[u]) if (du + w < d[v]) { d[v] = du + w; prev[v] = u; push([d[v], v]); }
+    if (isT(u)) { end = u; break; }
+    for (const [v, w] of adj[u]) { const c = du + cost(u, v, w); if (c < d[v]) { d[v] = c; prev[v] = u; push([c, v]); } }
   }
-  if (d[t] === Infinity) return null;
+  if (end < 0) return null;
   const path = [];
-  for (let v = t; v !== -1; v = prev[v]) path.push(v);
-  return { path: path.reverse(), length: d[t] };
+  for (let v = end; v !== -1; v = prev[v]) path.push(v);
+  return { path: path.reverse(), length: d[end] };
 }
 
+// 그래프 간선 비용 = 걷는 시간(분). 하산길 찾기용
+export const toblerEdge = (eles) => (u, v, w) => toblerMin(w, eles[v] - eles[u]);
+
 // 걷는 시간(분). Tobler 보행 함수 v = 6·e^(-3.5·|경사+0.05|) km/h (평지 약 5 km/h, 완만한 내리막에서 가장 빠름).
-// 꼭짓점 사이가 몇 m뿐이면 7.8 m 고도 픽셀 경계에서 경사가 튀므로, 20 m 간격으로 다시 찍은 점을 넣을 것
+// 경사는 15 m 이상 거리로 나눔: 20 m로 다시 찍어도 원래 꼭짓점 사이가 3.5 m인 곳이 남고, 7.8 m 고도 픽셀 경계에서
+// 5.7 m 차이가 나면 경사 160% → 그 3.5 m에 13분이 붙었음 (승학산 동매산 하산길 221 m가 27분으로 나옴).
+// ponytail: 근사. 고도를 보간하면 더 정확
+export const toblerMin = (dx, dh) => dx / 1000 / (6 * Math.exp(-3.5 * Math.abs(dh / Math.max(dx, 15) + 0.05))) * 60;
+
 // 누적 값(분): out[i] = 0번 점에서 i번 점까지 걷는 시간
 export function toblerCumulative(pts, eles) {
   const out = [0];
-  for (let i = 1; i < pts.length; i++) {
-    const dx = dist(pts[i - 1], pts[i]);
-    out.push(out[i - 1] + (dx ? dx / 1000 / (6 * Math.exp(-3.5 * Math.abs((eles[i] - eles[i - 1]) / dx + 0.05))) * 60 : 0));
-  }
+  for (let i = 1; i < pts.length; i++) out.push(out[i - 1] + toblerMin(dist(pts[i - 1], pts[i]), eles[i] - eles[i - 1]));
   return out;
 }
 export const toblerMinutes = (pts, eles) => toblerCumulative(pts, eles).at(-1);

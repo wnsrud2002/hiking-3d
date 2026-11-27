@@ -29,6 +29,17 @@ KINDS = [("natural", "peak", "peak"), ("tourism", "viewpoint", "view"), ("natura
          ("amenity", "drinking_water", "water"), ("amenity", "shelter", "shelter"), ("amenity", "toilets", "toilets"),
          ("information", "guidepost", "guide")]  # 위에 있을수록 우선 (전망대이면서 바위인 곳 → 전망대)
 POI_R = 30  # m
+# 하산 목표 '들머리' = 등산로 끝이 차도에서 ROAD_R 안이고 버스 정류장에서 BUS_R 안인 곳 (내려가서 교통편이 있는 곳).
+# 차도만 보면 장산·봉래산 정상 옆 군부대·관리용 도로(비포장 포함)가 '3분 거리 들머리'로 잡혔음
+# 고속도로·자동차전용도로는 걸어서 못 나가고, 터널은 산 밑을 지나감 (금정산 고당봉 밑 부산외곽순환고속도로 터널이
+# 해발 578 m 등산로 위의 '들머리'로 잡혔었음). 출입 금지 길(군부대·사유지)도 뺌
+ROADS = (f'[out:json][timeout:90];way["highway"~"^(primary|secondary|tertiary|unclassified|residential|'
+         f'living_street|service|road)(_link)?$"]["tunnel"!~"."]["access"!~"^(private|no)$"]{BOX};out geom;')
+ROAD_R = 20  # m
+BUSES = f'[out:json][timeout:60];(node["highway"="bus_stop"]{BOX};node["public_transport"="platform"]{BOX};);out;'
+# 300 m면 봉래산 정상 쪽 등산로망은 끝이 차도와 닿아도 정류장이 511 m 이상이라 들머리 0개. 정상 옆 관리용 도로는
+# 정류장까지 1 km 넘음(장산 1,463 m, 봉래산 1,126 m) → 그 사이인 600 m(걸어서 약 8분)
+BUS_R = 600  # m
 MX, MY = 111320 * math.cos(math.radians(CENTER[1])), 111320  # 위경도 1°당 m (범위가 좁아 평면 근사)
 # 메인 서버가 느리거나(35 s) 502를 내는 일이 잦아 미러를 먼저 시도
 SERVERS = ["https://maps.mail.ru/osm/tools/overpass/api/interpreter",
@@ -115,6 +126,18 @@ def to_pois(elements, ways):
     return {"type": "FeatureCollection", "features": feats}
 
 
+def trailheads(ways, roads, stops):
+    """등산로 길의 양 끝점 중 차도 ROAD_R 안 + 버스 정류장 BUS_R 안인 곳 → GeoJSON 점 (kind=trailhead).
+    가까운 들머리를 하나로 합치지 않음: 합치면 큰 등산로망 쪽 대신 옆 작은 조각 쪽이 남아
+    봉래산 정상에서 이어진 들머리가 0개가 됐었음"""
+    road = near_any([p for r in roads for p in samples(r)], ROAD_R)
+    bus = near_any(stops, BUS_R)
+    near_road = lambda x, y: road(x, y) and bus(x, y)
+    picked = {(e["lon"], e["lat"]) for w in ways for e in (w["geometry"][0], w["geometry"][-1]) if near_road(e["lon"], e["lat"])}
+    return [{"type": "Feature", "properties": {"kind": "trailhead", "ele": round(elevation(x, y))},
+             "geometry": {"type": "Point", "coordinates": [round(x, 5), round(y, 5)]}} for x, y in sorted(picked)]
+
+
 def save(name, gj):
     OUT.mkdir(parents=True, exist_ok=True)
     out = OUT / name
@@ -145,5 +168,9 @@ if __name__ == "__main__":
           f"{len(ways)}개, {size:,} B 저장 (OSM 기준 {osm['osm3s']['timestamp_osm_base']})")
     poi = fetch(POIS)["elements"]
     pois = to_pois(poi, ways)
-    print(f"지점 {len(poi)}개 → 등산로 {POI_R} m 밖 {len(poi) - len(pois['features'])}개 제외 → "
-          f"{len(pois['features'])}개, {save('pois.geojson', pois):,} B 저장")
+    kept = len(pois["features"])
+    stops = [(e["lon"], e["lat"]) for e in fetch(BUSES)["elements"]]
+    heads = trailheads(ways, fetch(ROADS)["elements"], stops)
+    pois["features"] += heads
+    print(f"지점 {len(poi)}개 → 등산로 {POI_R} m 밖 {len(poi) - kept}개 제외 → "
+          f"{kept}개 + 들머리 {len(heads)}개(버스 정류장 {len(stops)}개 기준), {save('pois.geojson', pois):,} B 저장")

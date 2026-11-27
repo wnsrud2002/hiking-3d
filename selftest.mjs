@@ -3,7 +3,7 @@ import { climb, dist } from './profile.js';
 import { sunset } from './sun.js';
 import { pointAt, bearing } from './fly.js';
 import { rows, sky } from './weather.js';
-import { buildGraph, shortestPath, toblerMinutes, resample, progress, cumulative, snapPair } from './graph.js';
+import { buildGraph, shortestPath, toblerMinutes, toblerMin, toblerEdge, resample, progress, cumulative, snapPair } from './graph.js';
 
 const ok = (cond, msg) => { if (!cond) throw new Error(msg); };
 const kst = (d) => new Date(`${d}+09:00`);
@@ -43,10 +43,19 @@ ok(gs.comp[ss] === gs.comp[tt] && shortestPath(gs, ss, tt) !== null, `snapPair �
 const [s2] = snapPair(gs, tapA, { lon: 129 + 10 / 91290, lat: 35 + 20 / 111320 }, 100);
 ok(gs.pts[s2].lat > 35, '둘 다 외딴 조각 근처면 그대로');
 
+// 하산: S에서 들머리 둘. A는 300 m지만 100 m를 올라야 하고, B는 400 m 내리막 → 시간 기준이면 B, 거리 기준이면 A
+const S = [129, 35], HA = [129 - 300 / 91290, 35], HB = [129 + 400 / 91290, 35];
+const gd = buildGraph([[HA, S, HB]]);
+const iS = gd.pts.findIndex((p) => p.lon === 129), iA = gd.pts.findIndex((p) => p.lon < 129), iB = gd.pts.findIndex((p) => p.lon > 129);
+const eles = []; eles[iS] = 200; eles[iA] = 300; eles[iB] = 150;
+ok(shortestPath(gd, iS, new Set([iA, iB])).path.at(-1) === iA, '하산 거리 기준 → 가까운 A');
+ok(shortestPath(gd, iS, new Set([iA, iB]), toblerEdge(eles)).path.at(-1) === iB, '하산 시간 기준 → 내리막 B');
+
 // Tobler: 평지 1 km ≈ 5.04 km/h → 11.9분, 경사 +20%는 훨씬 느림
 const flat = [{ lon: 129, lat: 35 }, { lon: 129 + 1 / 91.29, lat: 35 }];
 near(toblerMinutes(flat, [0, 0]), 60 / (6 * Math.exp(-0.175)) * dist(flat[0], flat[1]) / 1000, 0.01, 'Tobler 평지');
 ok(toblerMinutes(flat, [0, 200]) > 2 * toblerMinutes(flat, [0, 0]), 'Tobler 오르막이 더 느림');
+ok(toblerMin(3.5, 5.7) < 0.5, `짧은 구간 고도 픽셀 튐: 3.5 m에 ${toblerMin(3.5, 5.7)}분`); // 고치기 전 13.3분
 
 // resample: 100 m 선을 20 m 간격 → 6점, 끝점 보존
 const rs = resample([{ lon: 129, lat: 35 }, { lon: 129 + 0.1 / 91.29, lat: 35 }], 20);
@@ -86,4 +95,4 @@ for (const [d, ref] of [['2026-11-01', '17:29'], ['2026-11-15', '17:18'], ['2026
   for (const at of ['09:00', '21:00']) near(sunset(kst(`${d}T${at}`), 35.1796, 129.0756) - kst(`${d}T${ref}`), 0, 2 * 60e3, `일몰 ${d} ${at}`);
 }
 
-console.log('자체 검사 통과: climb 5 · 그래프·최단경로 7 · Tobler 2 · resample 1 · 진행 위치 4 · 날아보기 3 · 날씨 4 · 일몰 8');
+console.log('자체 검사 통과: climb 5 · 그래프·최단경로·하산 9 · Tobler 3 · resample 1 · 진행 위치 4 · 날아보기 3 · 날씨 4 · 일몰 8');

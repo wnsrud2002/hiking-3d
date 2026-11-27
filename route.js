@@ -2,18 +2,18 @@
 import { fmtDist } from './profile.js';
 import { sunset } from './sun.js';
 import { flyAlong } from './fly.js';
-import { buildGraph, nearestNode, snapPair, shortestPath, toblerCumulative, progress, cumulative, resample } from './graph.js';
+import { buildGraph, nearestNode, snapPair, shortestPath, toblerCumulative, toblerEdge, progress, cumulative, resample } from './graph.js';
 
 const SNAP = 100; // m. 누른 곳에서 이보다 먼 등산로에는 붙이지 않음
 const OFF = 30; // m. 경로에서 이만큼(GPS 오차가 더 크면 그만큼) 벗어나면 알림
 const ARRIVE = 20; // m. 남은 거리가 이보다 짧으면 도착
 
-const KIND = { peak: '봉우리', view: '전망대', water: '약수터', shelter: '쉼터', toilets: '화장실', guide: '이정표' };
+const KIND = { peak: '봉우리', view: '전망대', water: '약수터', shelter: '쉼터', toilets: '화장실', guide: '이정표', trailhead: '들머리(차도와 만나는 곳)' };
 
 const fmtMin = (m) => (m >= 60 ? `${Math.floor(m / 60)}시간 ${Math.round(m % 60)}분` : `${Math.round(m)}분`);
 const clock = (d) => d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-export function setupRoute(map, { maplibregl, say, profile, geo, trails }) {
+export function setupRoute(map, { maplibregl, say, profile, geo, trails, pois }) {
   let lines = null, graph = null;
   const load = async () => {
     if (!lines) lines = (await (await fetch(trails)).json()).features.map((f) => f.geometry.coordinates);
@@ -48,7 +48,7 @@ export function setupRoute(map, { maplibregl, say, profile, geo, trails }) {
       const eta = Date.now() + leftMin * 60e3, end = fine.at(-1), set = sunset(new Date(Date.now()), end.lat, end.lon);
       text += ` · 약 ${fmtMin(leftMin)} · 도착 ${clock(new Date(eta))}${set ? ` · 일몰 ${clock(set)}` : ''}`;
       const late = set && eta > set.getTime();
-      if (late) warn.push('일몰 뒤 도착 예상: 랜턴을 챙기거나 더 짧은 하산길을 고르세요');
+      if (late) warn.push('일몰 뒤 도착 예상: 랜턴을 챙기거나 \'하산\' 버튼으로 가장 빠른 하산길을 찾으세요');
       if (late && !follow.late) { navigator.vibrate?.([200, 100, 200]); say('일몰 전에 도착하기 어렵습니다.'); }
       follow.late = late;
     }
@@ -156,7 +156,11 @@ export function setupRoute(map, { maplibregl, say, profile, geo, trails }) {
     const r = shortestPath(graph, s, t);
     start = null; setMode(false);
     if (!r) return say('두 지점을 잇는 등산로가 없습니다. 같은 산줄기 안에서 골라 주세요.');
-    const pts = r.path.map((k) => graph.pts[k]);
+    showRoute(r.path.map((k) => graph.pts[k]));
+  }
+
+  // 찾은 경로 → 초록 선·안내 창·고도 그래프 (경로 찾기·하산길이 같이 씀)
+  async function showRoute(pts) {
     map.getSource('route').setData(line(pts.map((p) => [p.lon, p.lat])));
     const fine = resample(pts); // 20 m 간격: 걷는 시간 계산과 진행 위치 계산을 같은 점으로
     const eles = await profile.elevations(fine);
@@ -166,6 +170,30 @@ export function setupRoute(map, { maplibregl, say, profile, geo, trails }) {
     onPosition(); // 위치가 이미 켜져 있으면 바로 남은 거리
     profile.show(pts, { color: '#16a34a', note: mins ? ` · 걷는 시간 약 ${fmtMin(mins.at(-1))}` : '' });
   }
+
+  // ── 가장 빠른 하산길: 지금 위치(없으면 지도 가운데)에서 걷는 시간이 가장 짧은 들머리(등산로가 차도와 만나는 곳)로 ──
+  let heads = null, nodeEles;
+  async function descend() {
+    await load();
+    heads ??= new Set((await (await fetch(pois)).json()).features.filter((f) => f.properties.kind === 'trailhead')
+      .map((f) => nearestNode(graph, { lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] }, 15)).filter((i) => i >= 0));
+    if (!heads.size) return say('이 산 데이터에 들머리가 없습니다.');
+    const from = here ?? lonlat(map.getCenter());
+    const s = nearestNode(graph, from, 3 * SNAP);
+    if (s < 0) return say(`${here ? '지금 위치' : '지도 가운데'}에서 ${3 * SNAP} m 안에 등산로가 없습니다.`);
+    // 오르막·내리막을 반영해야 가까워도 봉우리를 하나 넘는 길을 피함. 고도 타일을 못 받으면 거리 기준
+    nodeEles ??= await profile.elevations(graph.pts);
+    const r = shortestPath(graph, s, heads, nodeEles ? toblerEdge(nodeEles) : undefined);
+    if (!r) return say('이어진 들머리가 없습니다. 지나온 길로 돌아가세요.');
+    if (r.path.length < 2) return say('이미 들머리(차도와 만나는 곳)에 있습니다.');
+    clearPick(); clearRoute(); setMode(false);
+    pin(s, '#16a34a'); pin(r.path.at(-1), '#b91c1c');
+    await showRoute(r.path.map((k) => graph.pts[k]));
+    say(`가장 빠른 하산길 (${here ? '지금 위치' : '위치가 꺼져 있어 지도 가운데'} 기준${nodeEles ? '' : ', 고도 없이 거리로 고름'})`);
+  }
+  const down = Object.assign(document.createElement('button'), { type: 'button', className: 'txt small', textContent: '하산', title: '가장 빠른 하산길' });
+  down.setAttribute('aria-label', '가장 빠른 하산길');
+  down.onclick = descend;
 
   const btn = Object.assign(document.createElement('button'), { type: 'button', className: 'txt', textContent: '⇢' });
   function setMode(on) {
@@ -185,7 +213,7 @@ export function setupRoute(map, { maplibregl, say, profile, geo, trails }) {
   map.addControl({
     onAdd() {
       const div = Object.assign(document.createElement('div'), { className: 'maplibregl-ctrl maplibregl-ctrl-group' });
-      div.append(btn);
+      div.append(btn, down);
       return div;
     },
     onRemove() {},
