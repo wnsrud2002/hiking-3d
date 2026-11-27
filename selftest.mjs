@@ -5,6 +5,7 @@ import { pointAt, bearing } from './fly.js';
 import { rows, sky } from './weather.js';
 import { trailDistance, headingDiff } from './check.js';
 import { utmk, pointNumber } from './rescue.js';
+import { chunks } from './slope.js';
 import { buildGraph, nodeKey, shortestPath, toblerMinutes, toblerMin, toblerEdge, resample, progress, cumulative, snapPair } from './graph.js';
 
 const ok = (cond, msg) => { if (!cond) throw new Error(msg); };
@@ -109,9 +110,15 @@ for (const [lon, lat, want] of [[129.0191863, 35.6333953, '마마 3755 3853'], [
 ok(pointNumber(129.0073696, 35.1154266).startsWith('마라 3736 810'), '승학산 이정표 근처');
 ok(pointNumber(139.7, 35.7) === null, '한국 밖은 null');
 
+// 경사 조각: 꼭짓점 10 m마다인 100 m 선 → 조각마다 40 m 이상(마지막만 20 m 이상), 길이·꼭짓점 보존
+const ten = Array.from({ length: 11 }, (_, i) => [129 + i * 10 / 91290, 35]);
+const ch = chunks(ten, 40);
+ok(ch.length >= 2 && ch.slice(0, -1).every((c) => c.len >= 40) && ch.at(-1).len >= 20, `경사 조각 길이 ${ch.map((c) => c.len.toFixed(1))}`);
+ok(Math.abs(ch.reduce((a, c) => a + c.len, 0) - 100) < 0.5 && ch.reduce((a, c) => a + c.coords.length - 1, 0) === 10, '경사 조각 길이·꼭짓점 보존');
+
 // 일몰: timeanddate.com 부산(35.18, 129.08) 2026년 11월 표와 2분 안. 저녁 9시에 물어도 그날 일몰
 for (const [d, ref] of [['2026-11-01', '17:29'], ['2026-11-15', '17:18'], ['2026-11-27', '17:12'], ['2026-11-30', '17:11']]) {
   for (const at of ['09:00', '21:00']) near(sunset(kst(`${d}T${at}`), 35.1796, 129.0756) - kst(`${d}T${ref}`), 0, 2 * 60e3, `일몰 ${d} ${at}`);
 }
 
-console.log('자체 검사 통과: climb 5 · 그래프·최단경로·하산 10 · Tobler 3 · resample 1 · 진행 위치 4 · 날아보기 3 · 날씨 5 · 점검 2 · 지점번호 6 · 일몰 8');
+console.log('자체 검사 통과: climb 5 · 그래프·최단경로·하산 10 · Tobler 3 · resample 1 · 진행 위치 4 · 날아보기 3 · 날씨 5 · 점검 2 · 지점번호 6 · 경사 2 · 일몰 8');
