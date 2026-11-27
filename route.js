@@ -3,6 +3,8 @@ import { dist } from './profile.js';
 
 const GAP = 10; // m. OSM에서 실제론 이어졌는데 살짝 떨어져 그려진 막다른 끝점(승학산 범위 4곳)을 이어 줌
 const SNAP = 100; // m. 누른 곳에서 이보다 먼 등산로에는 붙이지 않음
+const OFF = 30; // m. 경로에서 이만큼(GPS 오차가 더 크면 그만큼) 벗어나면 알림
+const ARRIVE = 20; // m. 남은 거리가 이보다 짧으면 도착
 
 // GeoJSON LineString 좌표 배열들 → 그래프. 같은 좌표(소수 5자리 ≈ 1 m)는 같은 지점 = 갈림길
 export function buildGraph(lines) {
@@ -87,14 +89,35 @@ export function shortestPath({ pts, adj }, s, t) {
 
 // 걷는 시간(분). Tobler 보행 함수 v = 6·e^(-3.5·|경사+0.05|) km/h (평지 약 5 km/h, 완만한 내리막에서 가장 빠름).
 // 꼭짓점 사이가 몇 m뿐이면 7.8 m 고도 픽셀 경계에서 경사가 튀므로, 20 m 간격으로 다시 찍은 점을 넣을 것
-export function toblerMinutes(pts, eles) {
-  let h = 0;
+// 누적 값(분): out[i] = 0번 점에서 i번 점까지 걷는 시간
+export function toblerCumulative(pts, eles) {
+  const out = [0];
   for (let i = 1; i < pts.length; i++) {
     const dx = dist(pts[i - 1], pts[i]);
-    if (dx) h += dx / 1000 / (6 * Math.exp(-3.5 * Math.abs((eles[i] - eles[i - 1]) / dx + 0.05)));
+    out.push(out[i - 1] + (dx ? dx / 1000 / (6 * Math.exp(-3.5 * Math.abs((eles[i] - eles[i - 1]) / dx + 0.05))) * 60 : 0));
   }
-  return h * 60;
+  return out;
 }
+export const toblerMinutes = (pts, eles) => toblerCumulative(pts, eles).at(-1);
+
+// 경로 위 진행 위치. cum[i] = i번 점까지 누적 거리(m). 반환 { off: 경로까지 거리, along: 투영점까지 누적 거리, i: 구간 번호 }
+// 지그재그 길은 옆 굽이가 GPS 오차 안에 들 수 있어, 지난 위치(last) 앞뒤 50 m 안에서 찾은 점이
+// 전체에서 가장 가까운 점보다 15 m 이상 멀지 않으면 그쪽을 씀 (신호가 오래 끊겼다 돌아오면 전체 기준)
+export function progress(pts, cum, p, last = null) {
+  const mx = 111320 * Math.cos(p.lat * Math.PI / 180), my = 111320; // 20 m 구간이라 평면 근사로 충분
+  const cand = [];
+  for (let i = 1; i < pts.length; i++) {
+    const ax = (pts[i - 1].lon - p.lon) * mx, ay = (pts[i - 1].lat - p.lat) * my;
+    const dx = (pts[i].lon - pts[i - 1].lon) * mx, dy = (pts[i].lat - pts[i - 1].lat) * my;
+    const t = Math.max(0, Math.min(1, -(ax * dx + ay * dy) / (dx * dx + dy * dy || 1)));
+    cand.push({ off: Math.hypot(ax + t * dx, ay + t * dy), along: cum[i - 1] + t * (cum[i] - cum[i - 1]), i });
+  }
+  const nearest = (cs) => cs.reduce((a, b) => (b.off < a.off ? b : a), { off: Infinity });
+  const all = nearest(cand), local = last == null ? all : nearest(cand.filter((c) => Math.abs(c.along - last) <= 50));
+  return local.off <= all.off + 15 ? local : all;
+}
+
+export const cumulative = (pts) => pts.reduce((acc, p, i) => (acc.push(i ? acc[i - 1] + dist(pts[i - 1], p) : 0), acc), []);
 
 export function resample(pts, step = 20) {
   const out = [pts[0]];
@@ -108,8 +131,10 @@ export function resample(pts, step = 20) {
 const KIND = { peak: '봉우리', view: '전망대', water: '약수터', shelter: '쉼터', toilets: '화장실', guide: '이정표' };
 
 const fmtMin = (m) => (m >= 60 ? `${Math.floor(m / 60)}시간 ${Math.round(m % 60)}분` : `${Math.round(m)}분`);
+const fmtDist = (m) => (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(2)} km`);
+const clock = (d) => d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-export function setupRoute(map, { maplibregl, say, profile }) {
+export function setupRoute(map, { maplibregl, say, profile, geo }) {
   let lines = null, graph = null;
   const load = async () => {
     if (!lines) lines = (await (await fetch('trails.geojson')).json()).features.map((f) => f.geometry.coordinates);
@@ -117,8 +142,49 @@ export function setupRoute(map, { maplibregl, say, profile }) {
   };
   const line = (coords) => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } });
   const empty = { type: 'FeatureCollection', features: [] };
-  const clear = () => { map.getSource('pick').setData(empty); map.getSource('route').setData(empty); markers.forEach((m) => m.remove()); markers = []; };
-  let markers = [], mode = false, start = null;
+  const clearPick = () => map.getSource('pick').setData(empty);
+  // 찾은 경로는 따라 걷는 중에 지도를 잘못 눌러도 지워지지 않게, 경로 찾기(⇢)나 안내 창 ✕로만 지움
+  const clearRoute = () => {
+    map.getSource('route').setData(empty); markers.forEach((m) => m.remove()); markers = [];
+    follow = null; followEl.style.display = 'none';
+  };
+  let markers = [], mode = false, start = null, follow = null, here = null;
+
+  // ── 경로 따라가기: 위치가 들어올 때마다 남은 거리·시간, 이탈 알림 ──
+  const followEl = document.getElementById('follow');
+  function renderFollow() {
+    if (!follow || !followEl) return;
+    const { fine, cum, mins, state } = follow;
+    let text, warn = '';
+    if (!state) {
+      text = `경로 ${fmtDist(cum.at(-1))}${mins ? ` · 약 ${fmtMin(mins.at(-1))}` : ''} · 위치 버튼(◎)을 켜면 남은 거리 안내`;
+    } else {
+      const left = cum.at(-1) - state.along;
+      const k = state.i; // 투영점이 든 구간 [k-1, k]의 비율로 남은 시간도 나눔
+      const t = (state.along - cum[k - 1]) / ((cum[k] - cum[k - 1]) || 1);
+      const leftMin = mins && mins.at(-1) - (mins[k - 1] + t * (mins[k] - mins[k - 1]));
+      text = left < ARRIVE ? '도착' : `남은 ${fmtDist(left)}${mins ? ` · 약 ${fmtMin(leftMin)} · 도착 ${clock(new Date(Date.now() + leftMin * 60e3))}` : ''}`;
+      if (state.off) warn = `경로에서 ${Math.round(state.offBy)} m 벗어남`;
+    }
+    followEl.innerHTML = `<div class="ph"><span>${text}${warn ? `<br><b class="warn">${warn}</b>` : ''}</span>`
+      + '<button type="button" aria-label="경로 안내 끝내기" title="경로 안내 끝내기">✕</button></div>';
+    followEl.querySelector('button').onclick = () => { clearRoute(); profile.hide(); };
+    followEl.style.display = 'block';
+  }
+  function onPosition() {
+    if (!follow || !here) return;
+    const prev = follow.state;
+    const r = progress(follow.fine, follow.cum, here, prev?.along);
+    // GPS 오차가 크면 벗어났는지 돌아왔는지 판단을 미룸 (오차가 커졌다고 '돌아왔다'고 하지 않게)
+    const off = r.off > Math.max(OFF, here.accuracy ?? 0) ? true : r.off <= OFF ? false : !!prev?.off;
+    if (off && !prev?.off) { navigator.vibrate?.([200, 100, 200]); say(`경로에서 ${Math.round(r.off)} m 벗어났습니다.`); }
+    if (!off && prev?.off) say('경로로 돌아왔습니다.');
+    const arrived = follow.cum.at(-1) - r.along < ARRIVE;
+    if (arrived && !prev?.arrived) { navigator.vibrate?.(300); say('도착했습니다.'); }
+    follow.state = { ...r, off, offBy: r.off, arrived };
+    renderFollow();
+  }
+  geo?.on('geolocate', (pos) => { here = { lon: pos.coords.longitude, lat: pos.coords.latitude, accuracy: pos.coords.accuracy }; onPosition(); });
 
   function nearest(lngLat) {
     const p = { lon: lngLat.lng, lat: lngLat.lat };
@@ -172,12 +238,11 @@ export function setupRoute(map, { maplibregl, say, profile }) {
   async function pickSegment(e) {
     // 그중 누른 곳에 가장 가까운 선을 고름
     const found = near(e.point, 'trails');
-    if (!found.length) return clear();
+    if (!found.length) return clearPick();
     await load();
     // 타일에 잘린 조각이 아니라 원본 전체 선으로 비교 (generateId = 파일 속 순서)
     const id = found.map((f) => f.id).reduce((a, b) => (pxDist(e.point, lines[b]) < pxDist(e.point, lines[a]) ? b : a));
     const pts = toJunctions(lines[id]);
-    clear();
     map.getSource('pick').setData(line(pts.map((p) => [p.lon, p.lat])));
     profile.show(pts, { color: '#e0a800' });
   }
@@ -187,7 +252,7 @@ export function setupRoute(map, { maplibregl, say, profile }) {
     const i = nearest(e.lngLat);
     if (i < 0) return say(`등산로에서 ${SNAP} m 안쪽을 눌러 주세요.`);
     if (start == null) {
-      clear(); start = i; pin(i, '#16a34a');
+      clearRoute(); start = i; pin(i, '#16a34a');
       return say('도착점을 누르세요.');
     }
     pin(i, '#b91c1c');
@@ -196,10 +261,13 @@ export function setupRoute(map, { maplibregl, say, profile }) {
     if (!r) return say('두 지점을 잇는 등산로가 없습니다. 같은 산줄기 안에서 골라 주세요.');
     const pts = r.path.map((k) => graph.pts[k]);
     map.getSource('route').setData(line(pts.map((p) => [p.lon, p.lat])));
-    const fine = resample(pts);
+    const fine = resample(pts); // 20 m 간격: 걷는 시간 계산과 진행 위치 계산을 같은 점으로
     const eles = await profile.elevations(fine);
-    const note = eles ? ` · 걷는 시간 약 ${fmtMin(toblerMinutes(fine, eles))}` : '';
-    profile.show(pts, { color: '#16a34a', note });
+    const mins = eles && toblerCumulative(fine, eles);
+    follow = { fine, cum: cumulative(fine), mins, state: null };
+    renderFollow();
+    onPosition(); // 위치가 이미 켜져 있으면 바로 남은 거리
+    profile.show(pts, { color: '#16a34a', note: mins ? ` · 걷는 시간 약 ${fmtMin(mins.at(-1))}` : '' });
   }
 
   const btn = Object.assign(document.createElement('button'), { type: 'button', className: 'txt', textContent: '⇢' });
@@ -213,7 +281,7 @@ export function setupRoute(map, { maplibregl, say, profile }) {
   btn.onclick = () => {
     start = null;
     if (mode) return setMode(false);
-    clear(); profile.hide(); setMode(true);
+    clearPick(); clearRoute(); profile.hide(); setMode(true);
     say('출발점을 누르세요. (등산로 근처)');
   };
   setMode(false);

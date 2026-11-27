@@ -11,14 +11,21 @@
   .maplibregl-ctrl-group button { width: 44px; height: 44px; }
   .maplibregl-ctrl-group button.txt { font-size: 18px; line-height: 44px; }
   .maplibregl-ctrl-group button.txt.on { color: #d6249f; }
-  #status {
-    position: absolute; left: 10px; bottom: 56px; padding: 6px 10px; border-radius: 6px;
-    background: rgba(20, 20, 20, .85); color: #e6e6e6; font: 14px system-ui, sans-serif; display: none;
+  /* 기록 상태·경로 안내·고도 그래프가 함께 뜰 수 있어 겹치지 않게 아래에서부터 쌓음 */
+  #dock {
+    position: absolute; left: 10px; bottom: 56px; width: min(420px, calc(100vw - 80px));
+    display: flex; flex-direction: column; align-items: flex-start; gap: 6px; font: 14px system-ui, sans-serif;
+    pointer-events: none; /* 빈 자리는 지도 터치가 통과하게 */
   }
+  #dock > * { pointer-events: auto; }
+  #status, #follow { padding: 6px 10px; border-radius: 6px; background: rgba(20, 20, 20, .85); color: #e6e6e6; display: none; }
+  #follow { box-sizing: border-box; width: 100%; }
+  #follow .ph { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  #follow .warn { color: #fca5a5; }
+  #follow button { border: 0; background: none; color: #e6e6e6; font-size: 16px; width: 44px; height: 44px; margin: -12px -8px -12px 0; }
   #profile {
-    position: absolute; left: 10px; bottom: 56px; width: min(420px, calc(100vw - 80px)); padding: 8px 10px 6px;
-    border-radius: 8px; background: rgba(255, 255, 255, .92); color: #222; font: 13px system-ui, sans-serif;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, .3); display: none;
+    box-sizing: border-box; width: 100%; padding: 8px 10px 6px; border-radius: 8px; background: rgba(255, 255, 255, .92);
+    color: #222; font-size: 13px; box-shadow: 0 1px 4px rgba(0, 0, 0, .3); display: none;
   }
   #profile .ph { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   /* 터치 영역은 44px을 지키되 음수 여백으로 머리줄 높이는 그대로 */
@@ -34,8 +41,11 @@
 <body>
 <div id="map"></div>
 <div id="notice" role="status" aria-live="polite"></div>
-<div id="status" aria-live="polite"></div>
-<div id="profile" role="figure" aria-label="고도 프로필"></div>
+<div id="dock">
+  <div id="status" aria-live="polite"></div>
+  <div id="follow"></div>
+  <div id="profile" role="figure" aria-label="고도 프로필"></div>
+</div>
 <script type="module">
 // v6부터 ESM 전용이라 UMD <script src> 대신 import
 import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-gl.mjs';
@@ -213,7 +223,7 @@ document.querySelector('.maplibregl-ctrl-geolocate').addEventListener('click', a
 // ── 궤적 기록 · GPX 저장/불러오기 (track.js) ──
 const profile = createProfile({ say, demUrl: DEM.tiles[0] }); // 고도 타일을 한 번 읽어 기록·선택이 같이 씀
 setupTrack(map, { maplibregl, say, pitch: PITCH, profile });
-setupRoute(map, { maplibregl, say, profile });
+setupRoute(map, { maplibregl, say, profile, geo });
 
 
 // 산에서 신호가 약해도 열리도록 (sw.js). https·localhost에서만 동작

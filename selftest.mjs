@@ -1,6 +1,6 @@
 // 자체 검사: node selftest.mjs  (브라우저 없이 계산 로직만)
 import { climb, dist } from './profile.js';
-import { buildGraph, shortestPath, toblerMinutes, resample } from './route.js';
+import { buildGraph, shortestPath, toblerMinutes, resample, progress, cumulative } from './route.js';
 
 const ok = (cond, msg) => { if (!cond) throw new Error(msg); };
 const near = (a, b, tol, msg) => ok(Math.abs(a - b) <= tol, `${msg}: ${a} != ${b}`);
@@ -39,4 +39,18 @@ ok(toblerMinutes(flat, [0, 200]) > 2 * toblerMinutes(flat, [0, 0]), 'Tobler 오�
 const rs = resample([{ lon: 129, lat: 35 }, { lon: 129 + 0.1 / 91.29, lat: 35 }], 20);
 ok(rs.length === 6 && rs.at(-1).lon === 129 + 0.1 / 91.29, `resample ${rs.length}`);
 
-console.log('자체 검사 통과: climb 5 · 그래프·최단경로 5 · Tobler 2 · resample 1');
+// progress: 200 m 동서 직선의 100 m 지점에서 북쪽 20 m → off 20, along 100
+const M = 1 / 91290; // 위도 35°에서 경도 1 m (위도 1 m = 1/111320)
+const line = resample([{ lon: 129, lat: 35 }, { lon: 129 + 200 * M, lat: 35 }]);
+const pr = progress(line, cumulative(line), { lon: 129 + 100 * M, lat: 35 + 20 / 111320 });
+near(pr.off, 20, 0.5, 'progress off'); near(pr.along, 100, 0.5, 'progress along');
+
+// 지그재그: 동쪽 100 m → 북쪽 10 m → 서쪽 100 m. 두 굽이 사이(북쪽 5 m)는 양쪽 다 5 m라
+// 지난 위치가 첫 굽이(along 40)면 첫 굽이(along 50), 둘째 굽이(along 150)면 둘째 굽이(along 160)
+const zz = resample([{ lon: 129, lat: 35 }, { lon: 129 + 100 * M, lat: 35 },
+  { lon: 129 + 100 * M, lat: 35 + 10 / 111320 }, { lon: 129, lat: 35 + 10 / 111320 }]);
+const zc = cumulative(zz), mid = { lon: 129 + 50 * M, lat: 35 + 5 / 111320 };
+near(progress(zz, zc, mid, 40).along, 50, 1, '지그재그 첫 굽이 유지');
+near(progress(zz, zc, mid, 150).along, 160, 1, '지그재그 둘째 굽이 유지');
+
+console.log('자체 검사 통과: climb 5 · 그래프·최단경로 5 · Tobler 2 · resample 1 · 진행 위치 4');
