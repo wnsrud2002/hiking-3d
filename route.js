@@ -1,6 +1,7 @@
 // 등산로 선택: 평소엔 조각 탭 → 강조·고도 그래프, 경로 모드(⇢)에선 출발·도착 탭 → 등산로를 따라 최단 경로
 import { dist, fmtDist } from './profile.js';
 import { sunset } from './sun.js';
+import { flyAlong } from './fly.js';
 
 const GAP = 10; // m. OSM에서 실제론 이어졌는데 살짝 떨어져 그려진 막다른 끝점(승학산 범위 4곳)을 이어 줌
 const SNAP = 100; // m. 누른 곳에서 이보다 먼 등산로에는 붙이지 않음
@@ -169,9 +170,9 @@ export function setupRoute(map, { maplibregl, say, profile, geo, trails }) {
   // 찾은 경로는 따라 걷는 중에 지도를 잘못 눌러도 지워지지 않게, 경로 찾기(⇢)나 안내 창 ✕로만 지움
   const clearRoute = () => {
     map.getSource('route').setData(empty); markers.forEach((m) => m.remove()); markers = [];
-    follow = null; followEl.style.display = 'none';
+    stopFly?.(); follow = null; followEl.style.display = 'none';
   };
-  let markers = [], mode = false, start = null, follow = null, here = null;
+  let markers = [], mode = false, start = null, follow = null, here = null, stopFly = null;
 
   // ── 경로 따라가기: 위치가 들어올 때마다 남은 거리·시간, 이탈 알림 ──
   const followEl = document.getElementById('follow');
@@ -198,10 +199,24 @@ export function setupRoute(map, { maplibregl, say, profile, geo, trails }) {
     }
     if (!state) text += ' · 위치 버튼(◎)을 켜면 남은 거리 안내';
     followEl.innerHTML = `<div class="ph"><span>${text}${warn.map((w) => `<br><b class="warn">${w}</b>`).join('')}</span>`
-      + '<button type="button" aria-label="경로 안내 끝내기" title="경로 안내 끝내기">✕</button></div>';
-    followEl.querySelector('button').onclick = () => { clearRoute(); profile.hide(); };
+      + `<span><button type="button" class="fly">${stopFly ? '■' : '▶'}</button>`
+      + '<button type="button" class="end" aria-label="경로 안내 끝내기" title="경로 안내 끝내기">✕</button></span></div>';
+    const fly = followEl.querySelector('.fly'), label = stopFly ? '미리 보기 멈춤' : '경로 3D 미리 날아보기';
+    Object.assign(fly, { title: label, onclick: toggleFly });
+    fly.setAttribute('aria-label', label);
+    followEl.querySelector('.end').onclick = () => { clearRoute(); profile.hide(); };
     followEl.style.display = 'block';
   }
+  function toggleFly() {
+    if (stopFly) return stopFly();
+    const { fine, cum } = follow;
+    stopFly = flyAlong(map, fine, cum, {
+      onStep: (d) => profile.cursor(d), // 그래프 세로선·지도 점이 함께 따라감
+      onEnd: () => { stopFly = null; renderFollow(); },
+    });
+    renderFollow();
+  }
+
   function onPosition() {
     if (!follow || !here) return;
     const prev = follow.state;

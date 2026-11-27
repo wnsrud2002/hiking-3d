@@ -1,6 +1,7 @@
 // 자체 검사: node selftest.mjs  (브라우저 없이 계산 로직만)
 import { climb, dist } from './profile.js';
 import { sunset } from './sun.js';
+import { pointAt, bearing } from './fly.js';
 import { buildGraph, shortestPath, toblerMinutes, resample, progress, cumulative, snapPair } from './route.js';
 
 const ok = (cond, msg) => { if (!cond) throw new Error(msg); };
@@ -63,10 +64,15 @@ const zc = cumulative(zz), mid = { lon: 129 + 50 * M, lat: 35 + 5 / 111320 };
 near(progress(zz, zc, mid, 40).along, 50, 1, '지그재그 첫 굽이 유지');
 near(progress(zz, zc, mid, 150).along, 160, 1, '지그재그 둘째 굽이 유지');
 
+// 미리 날아보기: 200 m 직선의 50 m 지점, 동쪽 방위 90°·북쪽 0°
+const fp = pointAt(line, cumulative(line), 50);
+near(dist(line[0], fp), 50, 0.5, 'pointAt 50 m');
+near(bearing(line[0], line.at(-1)), 90, 0.1, '방위 동쪽'); near(bearing({ lon: 129, lat: 35 }, { lon: 129, lat: 35.1 }), 0, 0.1, '방위 북쪽');
+
 // 일몰: timeanddate.com 부산(35.18, 129.08) 2026년 11월 표와 2분 안. 저녁 9시에 물어도 그날 일몰
 const kst = (d) => new Date(`${d}+09:00`);
 for (const [d, ref] of [['2026-11-01', '17:29'], ['2026-11-15', '17:18'], ['2026-11-27', '17:12'], ['2026-11-30', '17:11']]) {
   for (const at of ['09:00', '21:00']) near(sunset(kst(`${d}T${at}`), 35.1796, 129.0756) - kst(`${d}T${ref}`), 0, 2 * 60e3, `일몰 ${d} ${at}`);
 }
 
-console.log('자체 검사 통과: climb 5 · 그래프·최단경로 7 · Tobler 2 · resample 1 · 진행 위치 4 · 일몰 8');
+console.log('자체 검사 통과: climb 5 · 그래프·최단경로 7 · Tobler 2 · resample 1 · 진행 위치 4 · 날아보기 3 · 일몰 8');
