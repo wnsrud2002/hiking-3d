@@ -30,6 +30,18 @@
   #follow .warn { color: #fca5a5; }
   #follow button { border: 0; background: none; color: #e6e6e6; font-size: 16px; width: 44px; height: 44px; margin: -12px -8px -12px 0; }
   #follow .ph > span:last-child { display: flex; flex-shrink: 0; }
+  #weather {
+    box-sizing: border-box; width: 100%; max-height: 45vh; overflow: auto; padding: 6px 10px; border-radius: 8px;
+    background: rgba(20, 20, 20, .88); color: #e6e6e6; display: none;
+  }
+  #weather .ph { display: flex; justify-content: space-between; align-items: center; }
+  #weather button { border: 0; background: none; color: #e6e6e6; font-size: 16px; width: 44px; height: 44px; margin: -12px -8px -12px 0; }
+  #weather table { border-collapse: collapse; font-size: 12px; margin-top: 4px; width: 100%; }
+  #weather th, #weather td { padding: 2px 4px; text-align: right; white-space: nowrap; }
+  #weather th:nth-child(2), #weather td:nth-child(2) { text-align: left; }
+  #weather .warn { color: #fca5a5; }
+  #weather .src { font-size: 11px; color: #a8a29e; margin-top: 4px; }
+  #weather a { color: #a8a29e; }
   #profile {
     box-sizing: border-box; width: 100%; padding: 8px 10px 6px; border-radius: 8px; background: rgba(255, 255, 255, .92);
     color: #222; font-size: 13px; box-shadow: 0 1px 4px rgba(0, 0, 0, .3); display: none;
@@ -51,6 +63,7 @@
 <div id="map"></div>
 <div id="notice" role="status" aria-live="polite"></div>
 <div id="dock">
+  <div id="weather" role="region" aria-label="정상 날씨"></div>
   <div id="status" aria-live="polite"></div>
   <div id="follow"></div>
   <div id="profile" role="figure" aria-label="고도 프로필"></div>
@@ -61,6 +74,7 @@ import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
 import { setupTrack } from './track.js';
 import { setupRoute } from './route.js';
 import { createProfile } from './profile.js';
+import { setupWeather } from './weather.js';
 
 // 산 목록은 데이터 스크립트(make_contours.py·fetch_trails.py)와 같은 파일. ?m=id → 마지막에 본 산 → 첫 산
 const MOUNTAINS = await (await fetch('mountains.json')).json();
@@ -255,6 +269,7 @@ document.querySelector('.maplibregl-ctrl-geolocate').addEventListener('click', a
 const profile = createProfile({ say, demUrl: DEM.tiles[0], map, maplibregl }); // 고도 타일을 한 번 읽어 기록·선택이 같이 씀
 setupTrack(map, { maplibregl, say, pitch: PITCH, profile });
 setupRoute(map, { maplibregl, say, profile, geo, trails: DATA + 'trails.geojson' });
+setupWeather(map, { M, say });
 
 
 // 산에서 신호가 약해도 열리도록 (sw.js). https·localhost에서만 동작

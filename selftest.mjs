@@ -2,9 +2,11 @@
 import { climb, dist } from './profile.js';
 import { sunset } from './sun.js';
 import { pointAt, bearing } from './fly.js';
+import { rows, sky } from './weather.js';
 import { buildGraph, shortestPath, toblerMinutes, resample, progress, cumulative, snapPair } from './route.js';
 
 const ok = (cond, msg) => { if (!cond) throw new Error(msg); };
+const kst = (d) => new Date(`${d}+09:00`);
 const near = (a, b, tol, msg) => ok(Math.abs(a - b) <= tol, `${msg}: ${a} != ${b}`);
 
 // climb: 오르내림 누적, 3 m 미만 떨림 무시, 끝부분 잔여 반영
@@ -69,10 +71,19 @@ const fp = pointAt(line, cumulative(line), 50);
 near(dist(line[0], fp), 50, 0.5, 'pointAt 50 m');
 near(bearing(line[0], line.at(-1)), 90, 0.1, '방위 동쪽'); near(bearing({ lon: 129, lat: 35 }, { lon: 129, lat: 35.1 }), 0, 0.1, '방위 북쪽');
 
+// 날씨: 지금(10:30) 시간부터 12줄, 비 70%·돌풍 16 m/s·뇌우는 경고
+const hrs = Array.from({ length: 48 }, (_, i) => `2026-11-27T${String(i % 24).padStart(2, '0')}:00`.replace('27T', i < 24 ? '27T' : '28T'));
+const wx = { time: hrs, temperature_2m: hrs.map(() => 10), apparent_temperature: hrs.map(() => 8), precipitation_probability: hrs.map((_, i) => (i === 12 ? 70 : 0)),
+  wind_speed_10m: hrs.map(() => 3), wind_gusts_10m: hrs.map((_, i) => (i === 13 ? 16 : 5)), weather_code: hrs.map((_, i) => (i === 14 ? 95 : 0)) };
+const wr = rows(wx, kst('2026-11-27T10:30').getTime());
+ok(wr.length === 12 && wr[0].hour === '10', `날씨 시작 ${wr[0]?.hour} 줄 ${wr.length}`);
+ok(wr.flatMap((r) => r.warn).join() === '12시 비 70%,13시 돌풍 16 m/s,14시 뇌우: 정상·능선 피하기', `날씨 경고 ${wr.flatMap((r) => r.warn)}`);
+ok(rows(wx, kst('2026-11-30T10:00').getTime()).length === 0, '오래된 예보는 빈 목록');
+ok(sky(0) === '☀️ 맑음' && sky(63) === '🌧️ 비' && sky(96).includes('뇌우'), '날씨 코드');
+
 // 일몰: timeanddate.com 부산(35.18, 129.08) 2026년 11월 표와 2분 안. 저녁 9시에 물어도 그날 일몰
-const kst = (d) => new Date(`${d}+09:00`);
 for (const [d, ref] of [['2026-11-01', '17:29'], ['2026-11-15', '17:18'], ['2026-11-27', '17:12'], ['2026-11-30', '17:11']]) {
   for (const at of ['09:00', '21:00']) near(sunset(kst(`${d}T${at}`), 35.1796, 129.0756) - kst(`${d}T${ref}`), 0, 2 * 60e3, `일몰 ${d} ${at}`);
 }
 
-console.log('자체 검사 통과: climb 5 · 그래프·최단경로 7 · Tobler 2 · resample 1 · 진행 위치 4 · 날아보기 3 · 일몰 8');
+console.log('자체 검사 통과: climb 5 · 그래프·최단경로 7 · Tobler 2 · resample 1 · 진행 위치 4 · 날아보기 3 · 날씨 4 · 일몰 8');
